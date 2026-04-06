@@ -1,0 +1,35 @@
+# CRUD
+add_snippet
+delete_snippet
+update_snippet
+get_snippet
+get_all_snippets
+
+# 搜索
+search
+get_snippets_by_category
+get_snippets_by_tag
+
+# 分类
+add_category
+delete_category
+get_all_categories
+rename_category
+
+# 标签
+get_all_tags
+add_tag_to_snippet
+remove_tag_from_snippet
+
+# 推荐
+recommend
+
+# 导入导出
+export_to_json
+import_from_json
+
+# 统计
+get_statistics
+
+# 辅助
+close
