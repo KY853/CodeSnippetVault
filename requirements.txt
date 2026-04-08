@@ -1,0 +1,5 @@
+# 语法高亮
+pygments>=2.15.0
+
+# Flask Web界面
+flask>=2.3.0
