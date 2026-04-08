@@ -3,6 +3,7 @@ Vault 核心类 - 实现所有接口
 """
 import re
 import json
+import sqlite3
 from typing import List, Dict, Optional, Tuple
 from datetime import datetime
 from collections import Counter
@@ -206,7 +207,7 @@ class Vault:
             self.db.execute_update(query, (category.name, category.description))
             return True
         except sqlite3.IntegrityError:
-            return False
+            return False  # 分类已存在，返回 False
 
     def delete_category(self, category_name: str) -> bool:
         """删除分类，该分类下的片段移动到'默认'分类"""
