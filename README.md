@@ -17,16 +17,19 @@
 |---|---|
 | **CRUD 操作** | 代码片段的添加、查看、编辑、删除 |
 | **分类管理** | 创建/重命名/删除分类，自动归类 |
-| **标签系统** | 自动聚合标签，按使用频率排序 |
+| **标签系统** | 自动聚合标签，按使用频率排序，点击标签查看对应片段 |
 | **全文搜索** | 支持正则表达式，可选标题/代码/标签搜索，返回匹配上下文 |
-| **文件导入/导出** | JSON 格式导入导出，支持合并/覆盖模式 |
+| **文件导入/导出** | JSON 格式导入导出，支持选中片段单独导出 |
 | **语法高亮** | 基于 highlight.js，支持 15+ 语言 |
+| **批量示例数据** | 内置 17 条覆盖算法/Python/JS/前端/后端/工具的示例片段 |
 
 ### ⭐ 加分特性
 
 | 特性 | 说明 |
 |---|---|
 | **智能推荐** | 基于标签重叠度 + 使用频率的推荐算法 |
+| **热门片段 TOP5** | 仪表盘展示使用次数最多的前5条片段 |
+| **标签筛选** | 标签管理页点击任意标签，过滤出该标签下的所有代码 |
 | **Markdown 导出** | 围栏代码块格式，GitHub / 任意渲染器可直接使用 |
 | **HTML 导出** | 独立 HTML 文件，内嵌 highlight.js 语法高亮 |
 | **Flask Web 界面** | 暗色主题响应式 UI，支持一键复制代码 |
@@ -67,6 +70,14 @@ python cli.py
 
 菜单驱动的命令行界面，涵盖全部功能。
 
+### 导入示例数据（可选）
+
+如果数据库为空，可运行以下脚本添加 17 条覆盖各分类的示例代码片段：
+
+```bash
+python seed_data.py
+```
+
 ---
 
 ## 🧩 项目结构
@@ -77,6 +88,7 @@ CodeSnippetVault/
 ├── cli.py                 # 交互式命令行界面
 ├── vault.py               # Vault 核心逻辑类
 ├── config.py              # 配置文件
+├── seed_data.py           # 示例数据填充脚本
 ├── requirements.txt       # Python 依赖
 ├── index.html             # Web 前端（单页 SPA）
 ├── README.md              # 本文件
@@ -101,14 +113,15 @@ CodeSnippetVault/
 | `POST` | `/api/snippets` | 添加片段 |
 | `PUT` | `/api/snippets/:id` | 更新片段 |
 | `DELETE` | `/api/snippets/:id` | 删除片段 |
-| `GET` | `/api/search` | 全文搜索 |
+| `GET` | `/api/search` | 全文搜索（`?keyword=&field=`） |
 | `GET` | `/api/categories` | 获取分类列表 |
 | `POST` | `/api/categories` | 添加分类 |
 | `DELETE` | `/api/categories/:name` | 删除分类 |
 | `PUT` | `/api/categories/:name/rename` | 重命名分类 |
 | `GET` | `/api/tags` | 获取所有标签 |
+| `GET` | `/api/snippets/by-tag/:tag` | 按标签获取片段 |
 | `GET` | `/api/recommend` | 智能推荐 |
-| `GET` | `/api/export` | 导出 JSON |
+| `GET` | `/api/export` | 导出 JSON（支持 `?ids=1,2,3` 筛选） |
 | `POST` | `/api/import` | 导入 JSON |
 | `GET` | `/api/statistics` | 统计信息 |
 
@@ -127,6 +140,7 @@ CodeSnippetVault/
 ### 搜索实现
 
 全文搜索基于 Python `re` 正则模块：
+
 - 支持标准正则语法
 - 非正则输入自动 `re.escape` 兜底
 - 返回匹配位置和上下文，前端可高亮显示
@@ -140,6 +154,10 @@ score = tag_overlap * 10 + usage_count
 ```
 
 支持全局推荐（取高频标签）和基于某片段的相似推荐。
+
+### 热门统计
+
+`usage_count` 在每次查看片段详情时自动 +1，`get_statistics()` 返回前 5 条最热片段。
 
 ---
 

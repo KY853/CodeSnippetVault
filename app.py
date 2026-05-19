@@ -12,16 +12,20 @@ from vault import Vault
 from models.snippet import Snippet
 from models.category import Category
 
+_BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+_DB_PATH = os.path.join(_BASE_DIR, "snippets.db")
+
 app = Flask(__name__)
 CORS(app)
 
 # 初始化 Vault
-vault = Vault("snippets.db")
+vault = Vault(_DB_PATH)
 
 
 def _get_index_html():
     """惰性加载首页 HTML，避免模块导入时目录未就绪的问题"""
-    for path in ['templates/index.html', 'index.html']:
+    for rel_path in ['templates/index.html', 'index.html']:
+        path = os.path.join(_BASE_DIR, rel_path)
         if os.path.exists(path):
             return open(path, 'r', encoding='utf-8').read()
     return None
@@ -208,6 +212,16 @@ def get_tags():
     })
 
 
+@app.route('/api/snippets/by-tag/<tag>')
+def get_snippets_by_tag(tag):
+    """按标签获取片段"""
+    snippets = vault.get_snippets_by_tag(tag)
+    return jsonify({
+        'success': True,
+        'data': [s.to_dict() for s in snippets]
+    })
+
+
 @app.route('/api/snippets/<int:snippet_id>/tags', methods=['POST'])
 def add_tag(snippet_id):
     """添加标签"""
@@ -251,11 +265,16 @@ def recommend():
 
 @app.route('/api/export')
 def export_snippets():
-    """导出片段到JSON"""
+    """导出片段到JSON（支持 ?ids=1,2,3 筛选）"""
+    ids_param = request.args.get('ids', '')
     fd, temp_path = tempfile.mkstemp(suffix='.json')
     os.close(fd)
 
-    success = vault.export_to_json(temp_path)
+    if ids_param:
+        ids = [int(x.strip()) for x in ids_param.split(',') if x.strip().isdigit()]
+        success = vault.export_to_json(temp_path, snippet_ids=ids)
+    else:
+        success = vault.export_to_json(temp_path)
 
     if not success:
         return jsonify({'success': False, 'error': '导出失败'}), 500
@@ -388,14 +407,17 @@ if __name__ == '__main__':
         os.makedirs('templates')
 
     # 确保 templates/index.html 存在
+    templates_dir = os.path.join(_BASE_DIR, 'templates')
+    templates_path = os.path.join(_BASE_DIR, 'templates', 'index.html')
     html_src = _get_index_html()
-    if html_src and not os.path.exists('templates/index.html'):
-        with open('templates/index.html', 'w', encoding='utf-8') as f:
+    if html_src and not os.path.exists(templates_path):
+        os.makedirs(templates_dir, exist_ok=True)
+        with open(templates_path, 'w', encoding='utf-8') as f:
             f.write(html_src)
 
     print("=" * 50)
-    print("🚀 代码片段管理器已启动")
-    print("📍 访问地址: http://localhost:5000")
+    print("[Code Snippet Vault] 代码片段管理器已启动")
+    print("[Code Snippet Vault] 访问地址: http://localhost:5000")
     print("=" * 50)
 
     app.run(debug=True, host='0.0.0.0', port=5000)

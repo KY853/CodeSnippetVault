@@ -1,0 +1,1244 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>代码片段管理器 - Code Snippet Vault</title>
+    <!-- 第三方库 -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/atom-one-dark.min.css">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <style>
+        :root {
+            --bg-dark: #0d1117;
+            --bg-card: #161b22;
+            --border-color: #30363d;
+            --text-primary: #ffffff;
+            --text-secondary: #e0e6ed;
+            --accent-blue: #58a6ff;
+            --accent-green: #3fb950;
+            --accent-red: #f85149;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            background-color: var(--bg-dark);
+            color: var(--text-primary);
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans', Helvetica, Arial, sans-serif;
+        }
+
+        /* 侧边栏 */
+        .sidebar {
+            position: fixed;
+            left: 0;
+            top: 0;
+            width: 280px;
+            height: 100vh;
+            background-color: var(--bg-card);
+            border-right: 1px solid var(--border-color);
+            overflow-y: auto;
+            z-index: 100;
+        }
+
+        .sidebar-header {
+            padding: 20px;
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        .sidebar-header h3 {
+            font-size: 1.25rem;
+            margin: 0;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .sidebar-header h3 i {
+            color: var(--accent-blue);
+        }
+
+        .nav-menu {
+            padding: 16px 0;
+        }
+
+        .nav-item {
+            padding: 10px 20px;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            color: var(--text-secondary);
+            cursor: pointer;
+            transition: all 0.2s;
+            border-left: 2px solid transparent;
+        }
+
+        .nav-item:hover, .nav-item.active {
+            background-color: rgba(88, 166, 255, 0.1);
+            color: var(--text-primary);
+            border-left-color: var(--accent-blue);
+        }
+
+        .nav-item i {
+            width: 20px;
+        }
+
+        /* 主内容区 */
+        .main-content {
+            margin-left: 280px;
+            padding: 20px 30px;
+        }
+
+        /* 卡片样式 */
+        .card {
+            background-color: var(--bg-card);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            margin-bottom: 20px;
+            color: var(--text-primary);
+        }
+
+        .card-header {
+            padding: 16px 20px;
+            border-bottom: 1px solid var(--border-color);
+            font-weight: 600;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            color: var(--text-primary);
+        }
+
+        .card-body {
+            padding: 20px;
+            color: var(--text-primary);
+        }
+
+        .card-title, .card-text, h2, h3, h4, h5, h6 {
+            color: var(--text-primary);
+        }
+
+        /* 代码块样式 */
+        .code-block {
+            position: relative;
+            background-color: #0a0c10;
+            border-radius: 8px;
+            overflow: hidden;
+        }
+
+        .code-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 8px 16px;
+            background-color: #1e242c;
+            border-bottom: 1px solid var(--border-color);
+            font-size: 0.85rem;
+        }
+
+        .code-header .language {
+            color: var(--text-secondary);
+        }
+
+        .copy-btn {
+            background: none;
+            border: none;
+            color: var(--text-secondary);
+            cursor: pointer;
+            padding: 4px 8px;
+            border-radius: 4px;
+            transition: all 0.2s;
+        }
+
+        .copy-btn:hover {
+            background-color: rgba(255,255,255,0.1);
+            color: var(--accent-green);
+        }
+
+        .copy-btn.copied {
+            color: var(--accent-green);
+        }
+
+        pre {
+            margin: 0;
+            padding: 16px;
+            overflow-x: auto;
+        }
+
+        code {
+            font-family: 'SF Mono', 'JetBrains Mono', monospace;
+            font-size: 0.85rem;
+        }
+
+        /* 标签样式 */
+        .tag {
+            display: inline-block;
+            padding: 2px 8px;
+            background-color: rgba(88, 166, 255, 0.15);
+            color: var(--accent-blue);
+            border-radius: 20px;
+            font-size: 0.75rem;
+            margin-right: 6px;
+            margin-bottom: 6px;
+        }
+
+        .category-badge {
+            display: inline-block;
+            padding: 2px 10px;
+            background-color: rgba(63, 185, 80, 0.15);
+            color: var(--accent-green);
+            border-radius: 20px;
+            font-size: 0.7rem;
+        }
+
+        /* 表单样式 */
+        .form-control, .form-select {
+            background-color: #0a0c10;
+            border: 1px solid var(--border-color);
+            color: var(--text-primary);
+        }
+
+        .form-control:focus, .form-select:focus {
+            background-color: #0a0c10;
+            border-color: var(--accent-blue);
+            color: var(--text-primary);
+            box-shadow: 0 0 0 3px rgba(88, 166, 255, 0.2);
+        }
+
+        label {
+            font-weight: 500;
+            margin-bottom: 6px;
+            color: var(--text-secondary);
+        }
+
+        /* 搜索高亮 */
+        .search-highlight {
+            background-color: rgba(210, 153, 34, 0.4);
+            border-radius: 2px;
+        }
+
+        /* 模态框 */
+        .modal-content {
+            background-color: var(--bg-card);
+            border: 1px solid var(--border-color);
+        }
+
+        .modal-header, .modal-footer {
+            border-color: var(--border-color);
+        }
+
+        .btn-close {
+            filter: invert(1);
+        }
+
+        /* 滚动条 */
+        ::-webkit-scrollbar {
+            width: 8px;
+            height: 8px;
+        }
+
+        ::-webkit-scrollbar-track {
+            background: var(--bg-dark);
+        }
+
+        ::-webkit-scrollbar-thumb {
+            background: var(--border-color);
+            border-radius: 4px;
+        }
+
+        /* 片段列表项 */
+        .snippet-item {
+            padding: 12px 16px;
+            border-bottom: 1px solid var(--border-color);
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+
+        .snippet-item:hover {
+            background-color: rgba(88, 166, 255, 0.05);
+        }
+
+        .snippet-title {
+            font-weight: 600;
+            margin-bottom: 6px;
+        }
+
+        .snippet-meta {
+            font-size: 0.75rem;
+            color: var(--text-secondary);
+            display: flex;
+            gap: 16px;
+            flex-wrap: wrap;
+        }
+
+        /* 加载动画 */
+        .loading {
+            text-align: center;
+            padding: 40px;
+            color: var(--text-secondary);
+        }
+
+        /* 响应式 */
+        @media (max-width: 768px) {
+            .sidebar {
+                transform: translateX(-100%);
+                transition: transform 0.3s;
+            }
+            .sidebar.open {
+                transform: translateX(0);
+            }
+            .main-content {
+                margin-left: 0;
+            }
+            .menu-toggle {
+                display: block;
+                position: fixed;
+                top: 15px;
+                left: 15px;
+                z-index: 101;
+                background: var(--accent-blue);
+                border: none;
+                color: white;
+                padding: 8px 12px;
+                border-radius: 6px;
+            }
+        }
+
+        @media (min-width: 769px) {
+            .menu-toggle {
+                display: none;
+            }
+        }
+
+        /* 推荐卡片特殊样式 */
+        .recommend-card {
+            border-left: 3px solid var(--accent-blue);
+        }
+
+        .usage-count {
+            font-size: 0.7rem;
+            color: var(--text-secondary);
+        }
+    </style>
+</head>
+<body>
+
+<button class="menu-toggle" id="menuToggle">
+    <i class="fas fa-bars"></i>
+</button>
+
+<!-- 侧边栏 -->
+<div class="sidebar" id="sidebar">
+    <div class="sidebar-header">
+        <h3>
+            <i class="fas fa-code"></i>
+            Code Vault
+        </h3>
+        <small class="text-secondary">代码片段管理器</small>
+    </div>
+
+    <div class="nav-menu">
+        <div class="nav-item active" data-view="dashboard">
+            <i class="fas fa-tachometer-alt"></i>
+            <span>仪表盘</span>
+        </div>
+        <div class="nav-item" data-view="snippets">
+            <i class="fas fa-database"></i>
+            <span>我的片段</span>
+        </div>
+        <div class="nav-item" data-view="search">
+            <i class="fas fa-search"></i>
+            <span>搜索</span>
+        </div>
+        <div class="nav-item" data-view="categories">
+            <i class="fas fa-folder"></i>
+            <span>分类管理</span>
+        </div>
+        <div class="nav-item" data-view="tags">
+            <i class="fas fa-tags"></i>
+            <span>标签管理</span>
+        </div>
+        <div class="nav-item" data-view="recommend">
+            <i class="fas fa-star"></i>
+            <span>智能推荐</span>
+        </div>
+        <div class="nav-item" data-view="import">
+            <i class="fas fa-file-import"></i>
+            <span>导入/导出</span>
+        </div>
+    </div>
+
+    <div class="mt-auto p-3 border-top" style="border-color: var(--border-color); margin-top: auto;">
+        <button class="btn btn-primary w-100" data-bs-toggle="modal" data-bs-target="#addSnippetModal">
+            <i class="fas fa-plus"></i> 添加代码片段
+        </button>
+    </div>
+</div>
+
+<!-- 主内容区 -->
+<div class="main-content" id="mainContent">
+    <!-- 动态内容将渲染在这里 -->
+    <div class="loading" id="loadingIndicator">
+        <i class="fas fa-spinner fa-spin"></i> 加载中...
+    </div>
+</div>
+
+<!-- 添加片段模态框 -->
+<div class="modal fade" id="addSnippetModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title"><i class="fas fa-plus-circle"></i> 添加代码片段</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <form id="addSnippetForm">
+                    <div class="mb-3">
+                        <label>标题 <span class="text-danger">*</span></label>
+                        <input type="text" class="form-control" name="title" required>
+                    </div>
+                    <div class="mb-3">
+                        <label>代码 <span class="text-danger">*</span></label>
+                        <textarea class="form-control" name="code" rows="10" required style="font-family: monospace;"></textarea>
+                    </div>
+                    <div class="mb-3">
+                        <label>语言</label>
+                        <select class="form-select" name="language">
+                            <option value="python">Python</option>
+                            <option value="javascript">JavaScript</option>
+                            <option value="java">Java</option>
+                            <option value="html">HTML</option>
+                            <option value="css">CSS</option>
+                            <option value="sql">SQL</option>
+                            <option value="go">Go</option>
+                            <option value="rust">Rust</option>
+                            <option value="cpp">C++</option>
+                            <option value="json">JSON</option>
+                            <option value="yaml">YAML</option>
+                            <option value="text">Text</option>
+                        </select>
+                    </div>
+                    <div class="mb-3">
+                        <label>标签 (用逗号分隔)</label>
+                        <input type="text" class="form-control" name="tags" placeholder="例如: 算法, 排序, python">
+                    </div>
+                    <div class="mb-3">
+                        <label>分类</label>
+                        <select class="form-select" name="category" id="categorySelect">
+                            <option value="默认">默认</option>
+                        </select>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+                <button type="button" class="btn btn-primary" id="submitAddSnippet">添加</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 编辑片段模态框 -->
+<div class="modal fade" id="editSnippetModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title"><i class="fas fa-edit"></i> 编辑片段</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <form id="editSnippetForm">
+                    <input type="hidden" name="id">
+                    <div class="mb-3">
+                        <label>标题</label>
+                        <input type="text" class="form-control" name="title" required>
+                    </div>
+                    <div class="mb-3">
+                        <label>代码</label>
+                        <textarea class="form-control" name="code" rows="10" required style="font-family: monospace;"></textarea>
+                    </div>
+                    <div class="mb-3">
+                        <label>语言</label>
+                        <select class="form-select" name="language">
+                            <option value="python">Python</option>
+                            <option value="javascript">JavaScript</option>
+                            <option value="java">Java</option>
+                            <option value="html">HTML</option>
+                            <option value="css">CSS</option>
+                            <option value="sql">SQL</option>
+                            <option value="go">Go</option>
+                            <option value="rust">Rust</option>
+                            <option value="cpp">C++</option>
+                            <option value="json">JSON</option>
+                            <option value="yaml">YAML</option>
+                        </select>
+                    </div>
+                    <div class="mb-3">
+                        <label>标签</label>
+                        <input type="text" class="form-control" name="tags" placeholder="用逗号分隔">
+                    </div>
+                    <div class="mb-3">
+                        <label>分类</label>
+                        <select class="form-select" name="category" id="editCategorySelect"></select>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-danger" id="deleteSnippetBtn">删除</button>
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+                <button type="button" class="btn btn-primary" id="submitEditSnippet">保存</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+<script>
+    // API 基础路径
+    const API_BASE = '/api';
+
+    // 全局状态
+    let currentView = 'dashboard';
+    let currentSnippetId = null;
+
+    // 初始化
+    document.addEventListener('DOMContentLoaded', () => {
+        loadCategories();
+        loadDashboard();
+        bindEvents();
+    });
+
+    function bindEvents() {
+        // 导航点击
+        document.querySelectorAll('.nav-item').forEach(item => {
+            item.addEventListener('click', (e) => {
+                const view = item.dataset.view;
+                if (view) {
+                    switchView(view);
+                }
+            });
+        });
+
+        // 菜单切换
+        document.getElementById('menuToggle')?.addEventListener('click', () => {
+            document.getElementById('sidebar').classList.toggle('open');
+        });
+
+        // 添加片段提交
+        document.getElementById('submitAddSnippet')?.addEventListener('click', addSnippet);
+
+        // 编辑片段提交
+        document.getElementById('submitEditSnippet')?.addEventListener('click', updateSnippet);
+        document.getElementById('deleteSnippetBtn')?.addEventListener('click', deleteSnippet);
+    }
+
+    async function apiCall(endpoint, method = 'GET', data = null) {
+        const options = {
+            method,
+            headers: {
+                'Content-Type': 'application/json'
+            }
+        };
+        if (data) {
+            options.body = JSON.stringify(data);
+        }
+
+        try {
+            const response = await fetch(`${API_BASE}${endpoint}`, options);
+            const result = await response.json();
+            if (!result.success) {
+                throw new Error(result.error || '请求失败');
+            }
+            return result.data;
+        } catch (error) {
+            console.error('API Error:', error);
+            showToast(error.message, 'error');
+            throw error;
+        }
+    }
+
+    function showToast(message, type = 'info') {
+        // 简单的toast实现
+        const toast = document.createElement('div');
+        toast.className = `alert alert-${type === 'error' ? 'danger' : 'success'} position-fixed bottom-0 end-0 m-3`;
+        toast.style.zIndex = '9999';
+        toast.innerHTML = message;
+        document.body.appendChild(toast);
+        setTimeout(() => toast.remove(), 3000);
+    }
+
+    async function loadCategories() {
+        try {
+            const categories = await apiCall('/categories');
+            const select = document.getElementById('categorySelect');
+            const editSelect = document.getElementById('editCategorySelect');
+            if (select) {
+                select.innerHTML = categories.map(c => `<option value="${c.name}">${c.name} (${c.snippet_count})</option>`).join('');
+            }
+            if (editSelect) {
+                editSelect.innerHTML = categories.map(c => `<option value="${c.name}">${c.name}</option>`).join('');
+            }
+        } catch (e) {}
+    }
+
+    async function loadDashboard() {
+        showLoading(true);
+        try {
+            const stats = await apiCall('/statistics');
+            const recentSnippets = await apiCall('/snippets?limit=10');
+            const recommended = await apiCall('/recommend?limit=5');
+
+            const html = `
+                <div class="container-fluid">
+                    <h2 class="mb-4"><i class="fas fa-tachometer-alt"></i> 仪表盘</h2>
+
+                    <!-- 统计卡片 -->
+                    <div class="row mb-4">
+                        <div class="col-md-3 mb-3">
+                            <div class="card">
+                                <div class="card-body">
+                                    <h5 class="text-secondary">总片段数</h5>
+                                    <h2 class="mb-0">${stats.total_snippets}</h2>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-md-3 mb-3">
+                            <div class="card">
+                                <div class="card-body">
+                                    <h5 class="text-secondary">分类数</h5>
+                                    <h2 class="mb-0">${stats.total_categories}</h2>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-md-3 mb-3">
+                            <div class="card">
+                                <div class="card-body">
+                                    <h5 class="text-secondary">标签数</h5>
+                                    <h2 class="mb-0">${stats.total_tags}</h2>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-md-3 mb-3">
+                            <div class="card">
+                                <div class="card-body">
+                                    <h5 class="text-secondary">最常用语言</h5>
+                                    <h2 class="mb-0">${stats.most_used_language}</h2>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 最热门片段 -->
+                    ${stats.most_popular_snippets && stats.most_popular_snippets.length ? `
+                    <div class="card mb-4">
+                        <div class="card-header">
+                            <i class="fas fa-fire"></i> 热门片段 TOP5
+                        </div>
+                        <div class="card-body p-0">
+                            ${stats.most_popular_snippets.map((s, i) => `
+                            <div class="snippet-item" data-id="${s.id}" style="cursor:pointer">
+                                <div class="snippet-title">
+                                    <span class="badge me-2 ${i === 0 ? 'bg-warning text-dark' : 'bg-secondary'}">#${i + 1}</span>
+                                    ${escapeHtml(s.title)}
+                                </div>
+                                <div class="snippet-meta">
+                                    <span><i class="fas fa-chart-line"></i> 使用 ${s.usage_count} 次</span>
+                                </div>
+                            </div>
+                            `).join('')}
+                        </div>
+                    </div>
+                    ` : ''}
+
+                    <!-- 最近片段 -->
+                    <div class="card mb-4">
+                        <div class="card-header">
+                            <i class="fas fa-clock"></i> 最近添加
+                        </div>
+                        <div class="card-body p-0">
+                            ${renderSnippetList(recentSnippets)}
+                        </div>
+                    </div>
+
+                    <!-- 智能推荐 -->
+                    <div class="card">
+                        <div class="card-header">
+                            <i class="fas fa-star text-warning"></i> 为你推荐
+                        </div>
+                        <div class="card-body p-0">
+                            ${renderSnippetList(recommended, true)}
+                        </div>
+                    </div>
+                </div>
+            `;
+            document.getElementById('mainContent').innerHTML = html;
+            attachSnippetClickEvents();
+        } catch (e) {
+            document.getElementById('mainContent').innerHTML = '<div class="alert alert-danger">加载失败</div>';
+        }
+        showLoading(false);
+    }
+
+    async function loadSnippets() {
+        showLoading(true);
+        try {
+            const snippets = await apiCall('/snippets?limit=100');
+            const html = `
+                <div class="container-fluid">
+                    <h2 class="mb-4"><i class="fas fa-database"></i> 我的片段</h2>
+                    <div class="card">
+                        <div class="card-header">
+                            <span>全部片段 (${snippets.length})</span>
+                            <input type="text" class="form-control form-control-sm w-auto" placeholder="过滤..." id="filterInput">
+                        </div>
+                        <div class="card-body p-0" id="snippetsList">
+                            ${renderSnippetList(snippets)}
+                        </div>
+                    </div>
+                </div>
+            `;
+            document.getElementById('mainContent').innerHTML = html;
+
+            // 过滤功能
+            document.getElementById('filterInput')?.addEventListener('input', (e) => {
+                const keyword = e.target.value.toLowerCase();
+                const items = document.querySelectorAll('.snippet-item');
+                items.forEach(item => {
+                    const title = item.querySelector('.snippet-title')?.innerText.toLowerCase();
+                    if (title?.includes(keyword)) {
+                        item.style.display = '';
+                    } else {
+                        item.style.display = 'none';
+                    }
+                });
+            });
+
+            attachSnippetClickEvents();
+        } catch (e) {
+            document.getElementById('mainContent').innerHTML = '<div class="alert alert-danger">加载失败</div>';
+        }
+        showLoading(false);
+    }
+
+    async function loadSearchView() {
+        const html = `
+            <div class="container-fluid">
+                <h2 class="mb-4"><i class="fas fa-search"></i> 全文搜索</h2>
+                <div class="card mb-4">
+                    <div class="card-body">
+                        <div class="row g-3">
+                            <div class="col-md-8">
+                                <input type="text" class="form-control" id="searchKeyword" placeholder="输入关键词或正则表达式...">
+                            </div>
+                            <div class="col-md-3">
+                                <select class="form-select" id="searchField">
+                                    <option value="all">全部字段</option>
+                                    <option value="title">标题</option>
+                                    <option value="code">代码</option>
+                                    <option value="tags">标签</option>
+                                </select>
+                            </div>
+                            <div class="col-md-1">
+                                <button class="btn btn-primary w-100" id="searchBtn"><i class="fas fa-search"></i></button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div id="searchResults"></div>
+            </div>
+        `;
+        document.getElementById('mainContent').innerHTML = html;
+
+        document.getElementById('searchBtn')?.addEventListener('click', async () => {
+            const keyword = document.getElementById('searchKeyword').value;
+            const field = document.getElementById('searchField').value;
+            if (!keyword) return;
+
+            showLoading(true);
+            try {
+                const results = await apiCall(`/search?keyword=${encodeURIComponent(keyword)}&field=${field}`);
+                const resultsHtml = `
+                    <div class="card">
+                        <div class="card-header">找到 ${results.length} 个结果</div>
+                        <div class="card-body p-0">
+                            ${results.map(result => renderSearchResult(result, keyword)).join('')}
+                        </div>
+                    </div>
+                `;
+                document.getElementById('searchResults').innerHTML = resultsHtml;
+                attachSnippetClickEvents();
+                hljs.highlightAll();
+            } catch (e) {
+                document.getElementById('searchResults').innerHTML = '<div class="alert alert-danger">搜索失败</div>';
+            }
+            showLoading(false);
+        });
+    }
+
+    async function loadCategoriesView() {
+        showLoading(true);
+        try {
+            const categories = await apiCall('/categories');
+            const html = `
+                <div class="container-fluid">
+                    <h2 class="mb-4"><i class="fas fa-folder"></i> 分类管理</h2>
+
+                    <div class="card mb-4">
+                        <div class="card-header">
+                            <span>添加新分类</span>
+                        </div>
+                        <div class="card-body">
+                            <div class="row g-3">
+                                <div class="col-md-4">
+                                    <input type="text" class="form-control" id="newCatName" placeholder="分类名称">
+                                </div>
+                                <div class="col-md-6">
+                                    <input type="text" class="form-control" id="newCatDesc" placeholder="描述">
+                                </div>
+                                <div class="col-md-2">
+                                    <button class="btn btn-success w-100" id="addCategoryBtn">添加</button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="card">
+                        <div class="card-header">所有分类</div>
+                        <div class="card-body p-0">
+                            <table class="table table-dark table-hover mb-0">
+                                <thead>
+                                    <tr><th>名称</th><th>描述</th><th>片段数</th><th>操作</th></tr>
+                                </thead>
+                                <tbody>
+                                    ${categories.map(cat => `
+                                        <tr>
+                                            <td>${escapeHtml(cat.name)}</td>
+                                            <td>${escapeHtml(cat.description || '-')}</td>
+                                            <td>${cat.snippet_count}</td>
+                                            <td>
+                                                ${cat.name !== '默认' ? `
+                                                    <button class="btn btn-sm btn-danger" onclick="deleteCategory('${cat.name}')">删除</button>
+                                                    <button class="btn btn-sm btn-warning" onclick="renameCategory('${cat.name}')">重命名</button>
+                                                ` : '<span class="text-secondary">系统分类</span>'}
+                                            </td>
+                                        </tr>
+                                    `).join('')}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            `;
+            document.getElementById('mainContent').innerHTML = html;
+
+            document.getElementById('addCategoryBtn')?.addEventListener('click', async () => {
+                const name = document.getElementById('newCatName').value;
+                const description = document.getElementById('newCatDesc').value;
+                if (!name) return;
+                await apiCall('/categories', 'POST', { name, description });
+                showToast('分类添加成功');
+                loadCategoriesView();
+                loadCategories();
+            });
+        } catch (e) {
+            document.getElementById('mainContent').innerHTML = '<div class="alert alert-danger">加载失败</div>';
+        }
+        showLoading(false);
+    }
+
+    let currentTagFilter = '';
+
+    async function loadTagsView(filterTag) {
+        showLoading(true);
+        try {
+            const tags = await apiCall('/tags');
+            const filteredSnippets = filterTag ? await apiCall(`/snippets/by-tag/${encodeURIComponent(filterTag)}`) : [];
+
+            let html = `
+                <div class="container-fluid">
+                    <h2 class="mb-4"><i class="fas fa-tags"></i> 标签管理</h2>
+                    <div class="card mb-4">
+                        <div class="card-header">所有标签 (${tags.length})</div>
+                        <div class="card-body">
+                            <div class="d-flex flex-wrap gap-2">
+                                ${tags.map(tag => `
+                                    <a href="#" class="tag" style="font-size: ${Math.max(12, 14 + tag[1] * 0.5)}px; text-decoration: none; cursor: pointer;" onclick="event.preventDefault(); loadTagsView('${escapeHtml(tag[0]).replace(/'/g, "\\'")}')">
+                                        ${escapeHtml(tag[0])} (${tag[1]})
+                                    </a>
+                                `).join('')}
+                            </div>
+                        </div>
+                    </div>`;
+
+            if (filterTag) {
+                html += `
+                    <div class="card">
+                        <div class="card-header">
+                            <i class="fas fa-filter"></i> 标签「${escapeHtml(filterTag)}」下的片段 (${filteredSnippets.length})
+                            <button class="btn btn-sm btn-outline-secondary" onclick="loadTagsView()">清除筛选</button>
+                        </div>
+                        <div class="card-body p-0">
+                            ${renderSnippetList(filteredSnippets)}
+                        </div>
+                    </div>`;
+            }
+
+            html += `</div>`;
+            document.getElementById('mainContent').innerHTML = html;
+            attachSnippetClickEvents();
+        } catch (e) {
+            console.error(e);
+        }
+        showLoading(false);
+    }
+
+    async function loadRecommendView() {
+        showLoading(true);
+        try {
+            const recommendations = await apiCall('/recommend?limit=20');
+            const html = `
+                <div class="container-fluid">
+                    <h2 class="mb-4"><i class="fas fa-star text-warning"></i> 智能推荐</h2>
+                    <p class="text-secondary mb-4">基于标签和使用频率的智能推荐，帮助你发现常用代码</p>
+                    <div class="card">
+                        <div class="card-body p-0">
+                            ${renderSnippetList(recommendations, true)}
+                        </div>
+                    </div>
+                </div>
+            `;
+            document.getElementById('mainContent').innerHTML = html;
+            attachSnippetClickEvents();
+        } catch (e) {}
+        showLoading(false);
+    }
+
+    let selectedExportIds = new Set();
+
+    async function loadImportView() {
+        showLoading(true);
+        try {
+            const snippets = await apiCall('/snippets?limit=1000');
+            selectedExportIds = new Set();
+            const html = `
+                <div class="container-fluid">
+                    <h2 class="mb-4"><i class="fas fa-file-import"></i> 导入/导出</h2>
+
+                    <div class="card mb-4">
+                        <div class="card-header">导出片段</div>
+                        <div class="card-body">
+                            <button class="btn btn-primary me-2" id="exportAllBtn"><i class="fas fa-download"></i> 导出所有</button>
+                            <button class="btn btn-success me-2" id="exportSelectedBtn" disabled><i class="fas fa-check-double"></i> 导出选中 (0)</button>
+
+                            <hr>
+                            <div class="mb-2">
+                                <small class="text-secondary">勾选要导出的片段（支持全选/反选）</small>
+                                <div class="mt-2">
+                                    <button class="btn btn-sm btn-outline-primary" id="selectAllBtn">全选</button>
+                                    <button class="btn btn-sm btn-outline-secondary" id="deselectAllBtn">清空</button>
+                                </div>
+                            </div>
+                            <div class="snippet-list" style="max-height: 400px; overflow-y: auto;">
+                                ${snippets.map(s => `
+                                    <label class="snippet-item d-flex align-items-center gap-3" style="cursor:pointer; user-select:none;">
+                                        <input type="checkbox" class="export-checkbox" value="${s.id}" style="flex-shrink:0;">
+                                        <div class="flex-grow-1">
+                                            <div class="snippet-title">${escapeHtml(s.title)}</div>
+                                            <div class="snippet-meta">
+                                                <span>${escapeHtml(s.language)}</span>
+                                                <span>${escapeHtml(s.category)}</span>
+                                                ${s.tags && s.tags.length ? `<span>${s.tags.slice(0, 3).join(', ')}</span>` : ''}
+                                            </div>
+                                        </div>
+                                    </label>
+                                `).join('')}
+                            </div>
+                        </div>
+                    </div>
+
+                <div class="card">
+                    <div class="card-header">导入片段</div>
+                    <div class="card-body">
+                        <form id="importForm">
+                            <div class="mb-3">
+                                <label>选择JSON文件</label>
+                                <input type="file" class="form-control" id="importFile" accept=".json">
+                            </div>
+                            <div class="mb-3 form-check">
+                                <input type="checkbox" class="form-check-input" id="mergeMode" checked>
+                                <label class="form-check-label">合并模式（保留现有数据）</label>
+                            </div>
+                            <button type="button" class="btn btn-success" id="importBtn"><i class="fas fa-upload"></i> 导入</button>
+                        </form>
+                    </div>
+                </div>
+            </div>
+        `;
+        document.getElementById('mainContent').innerHTML = html;
+
+        document.getElementById('exportAllBtn')?.addEventListener('click', () => {
+            window.open('/api/export', '_blank');
+        });
+
+        document.getElementById('exportSelectedBtn')?.addEventListener('click', () => {
+            const ids = [...document.querySelectorAll('.export-checkbox:checked')].map(cb => cb.value);
+            if (ids.length === 0) {
+                showToast('请先勾选要导出的片段', 'error');
+                return;
+            }
+            window.open(`/api/export?ids=${ids.join(',')}`, '_blank');
+        });
+
+        document.getElementById('selectAllBtn')?.addEventListener('click', () => {
+            document.querySelectorAll('.export-checkbox').forEach(cb => cb.checked = true);
+            updateExportButton();
+        });
+
+        document.getElementById('deselectAllBtn')?.addEventListener('click', () => {
+            document.querySelectorAll('.export-checkbox').forEach(cb => cb.checked = false);
+            updateExportButton();
+        });
+
+        document.querySelectorAll('.export-checkbox').forEach(cb => {
+            cb.addEventListener('change', updateExportButton);
+        });
+
+        function updateExportButton() {
+            const count = document.querySelectorAll('.export-checkbox:checked').length;
+            const btn = document.getElementById('exportSelectedBtn');
+            if (btn) {
+                btn.disabled = count === 0;
+                btn.innerHTML = `<i class="fas fa-check-double"></i> 导出选中 (${count})`;
+            }
+        }
+
+        document.getElementById('importBtn')?.addEventListener('click', async () => {
+            const file = document.getElementById('importFile').files[0];
+            if (!file) {
+                showToast('请选择文件', 'error');
+                return;
+            }
+            const merge = document.getElementById('mergeMode').checked;
+            const formData = new FormData();
+            formData.append('file', file);
+            formData.append('merge', merge);
+
+            try {
+                const response = await fetch('/api/import', { method: 'POST', body: formData });
+                const result = await response.json();
+                if (result.success) {
+                    showToast(`成功导入 ${result.count} 个片段`);
+                    loadDashboard();
+                } else {
+                    showToast(result.error, 'error');
+                }
+            } catch (e) {
+                showToast('导入失败', 'error');
+            }
+        });
+        } catch (e) {
+            showToast('加载失败', 'error');
+        }
+        showLoading(false);
+    }
+
+    async function addSnippet() {
+        const form = document.getElementById('addSnippetForm');
+        const formData = new FormData(form);
+        const data = {
+            title: formData.get('title'),
+            code: formData.get('code'),
+            language: formData.get('language'),
+            tags: formData.get('tags').split(',').map(t => t.trim()).filter(t => t),
+            category: formData.get('category')
+        };
+
+        try {
+            await apiCall('/snippets', 'POST', data);
+            showToast('添加成功');
+            bootstrap.Modal.getInstance(document.getElementById('addSnippetModal')).hide();
+            form.reset();
+            loadDashboard();
+            if (currentView === 'snippets') loadSnippets();
+        } catch (e) {
+            showToast(e.message, 'error');
+        }
+    }
+
+    async function viewSnippet(id) {
+        try {
+            const snippet = await apiCall(`/snippets/${id}`);
+            currentSnippetId = id;
+
+            // 填充编辑表单
+            document.querySelector('#editSnippetForm [name="id"]').value = snippet.id;
+            document.querySelector('#editSnippetForm [name="title"]').value = snippet.title;
+            document.querySelector('#editSnippetForm [name="code"]').value = snippet.code;
+            document.querySelector('#editSnippetForm [name="language"]').value = snippet.language;
+            document.querySelector('#editSnippetForm [name="tags"]').value = snippet.tags.join(', ');
+            document.querySelector('#editSnippetForm [name="category"]').value = snippet.category;
+
+            new bootstrap.Modal(document.getElementById('editSnippetModal')).show();
+        } catch (e) {}
+    }
+
+    async function updateSnippet() {
+        const form = document.getElementById('editSnippetForm');
+        const formData = new FormData(form);
+        const id = formData.get('id');
+        const data = {
+            title: formData.get('title'),
+            code: formData.get('code'),
+            language: formData.get('language'),
+            tags: formData.get('tags').split(',').map(t => t.trim()).filter(t => t),
+            category: formData.get('category')
+        };
+
+        try {
+            await apiCall(`/snippets/${id}`, 'PUT', data);
+            showToast('更新成功');
+            bootstrap.Modal.getInstance(document.getElementById('editSnippetModal')).hide();
+            loadDashboard();
+            if (currentView === 'snippets') loadSnippets();
+        } catch (e) {
+            showToast(e.message, 'error');
+        }
+    }
+
+    async function deleteSnippet() {
+        if (!confirm('确定删除这个片段吗？')) return;
+        try {
+            await apiCall(`/snippets/${currentSnippetId}`, 'DELETE');
+            showToast('删除成功');
+            bootstrap.Modal.getInstance(document.getElementById('editSnippetModal')).hide();
+            loadDashboard();
+            if (currentView === 'snippets') loadSnippets();
+        } catch (e) {
+            showToast(e.message, 'error');
+        }
+    }
+
+    async function deleteCategory(name) {
+        if (!confirm(`确定删除分类 "${name}" 吗？其中的片段将移到"默认"分类`)) return;
+        await apiCall(`/categories/${encodeURIComponent(name)}`, 'DELETE');
+        showToast('分类已删除');
+        loadCategoriesView();
+        loadCategories();
+    }
+
+    async function renameCategory(oldName) {
+        const newName = prompt('输入新分类名:', oldName);
+        if (!newName || newName === oldName) return;
+        try {
+            await apiCall(`/categories/${encodeURIComponent(oldName)}/rename`, 'PUT', { new_name: newName });
+            showToast('重命名成功');
+            loadCategoriesView();
+            loadCategories();
+        } catch (e) {
+            showToast(e.message, 'error');
+        }
+    }
+
+    function renderSnippetList(snippets, showUsage = false) {
+        if (!snippets || snippets.length === 0) {
+            return '<div class="p-4 text-center text-secondary">暂无片段</div>';
+        }
+        return snippets.map(s => `
+            <div class="snippet-item" data-id="${s.id}">
+                <div class="snippet-title">${escapeHtml(s.title)}</div>
+                <div class="snippet-meta">
+                    <span><i class="fas fa-tag"></i> ${escapeHtml(s.language)}</span>
+                    <span><i class="fas fa-folder"></i> ${escapeHtml(s.category)}</span>
+                    ${showUsage ? `<span><i class="fas fa-chart-line"></i> 使用 ${s.usage_count} 次</span>` : ''}
+                    ${s.tags && s.tags.length ? `<span><i class="fas fa-hashtag"></i> ${s.tags.slice(0, 3).map(t => escapeHtml(t)).join(', ')}</span>` : ''}
+                </div>
+            </div>
+        `).join('');
+    }
+
+    function renderSearchResult(result, keyword) {
+        const snippet = result.snippet;
+        const matches = result.matches;
+        const pattern = new RegExp(`(${escapeRegex(keyword)})`, 'gi');
+
+        let highlightedTitle = snippet.title;
+        let highlightedCode = snippet.code.substring(0, 200);
+
+        if (matches.some(m => m.field === 'title')) {
+            highlightedTitle = snippet.title.replace(pattern, '<mark class="search-highlight">$1</mark>');
+        }
+        if (matches.some(m => m.field === 'code')) {
+            highlightedCode = snippet.code.substring(0, 300).replace(pattern, '<mark class="search-highlight">$1</mark>');
+        }
+
+        return `
+            <div class="snippet-item" data-id="${snippet.id}">
+                <div class="snippet-title">${highlightedTitle}</div>
+                <pre class="mt-2 mb-0" style="background: #0a0c10; padding: 8px; border-radius: 4px; font-size: 0.75rem; max-height: 100px; overflow: auto;">${escapeHtml(highlightedCode)}</pre>
+                <div class="snippet-meta mt-2">
+                    <span>🏷️ ${snippet.language}</span>
+                    <span>📁 ${snippet.category}</span>
+                    ${snippet.tags && snippet.tags.length ? `<span># ${snippet.tags.slice(0, 3).join(', ')}</span>` : ''}
+                </div>
+            </div>
+        `;
+    }
+
+    function attachSnippetClickEvents() {
+        document.querySelectorAll('.snippet-item').forEach(el => {
+            el.addEventListener('click', (e) => {
+                if (e.target.closest('.copy-btn')) return;
+                const id = el.dataset.id;
+                if (id) viewSnippet(id);
+            });
+        });
+    }
+
+    function switchView(view) {
+        currentView = view;
+        document.querySelectorAll('.nav-item').forEach(item => {
+            item.classList.toggle('active', item.dataset.view === view);
+        });
+
+        const views = {
+            dashboard: loadDashboard,
+            snippets: loadSnippets,
+            search: loadSearchView,
+            categories: loadCategoriesView,
+            tags: loadTagsView,
+            recommend: loadRecommendView,
+            import: loadImportView
+        };
+
+        if (views[view]) views[view]();
+    }
+
+    function showLoading(show) {
+        const indicator = document.getElementById('loadingIndicator');
+        if (indicator) {
+            indicator.style.display = show ? 'block' : 'none';
+        }
+    }
+
+    function escapeHtml(text) {
+        if (!text) return '';
+        const div = document.createElement('div');
+        div.textContent = text;
+        return div.innerHTML;
+    }
+
+    function escapeRegex(str) {
+        return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    }
+
+    // 全局函数供 onclick 使用
+    window.deleteCategory = deleteCategory;
+    window.renameCategory = renameCategory;
+</script>
+</body>
+</html>

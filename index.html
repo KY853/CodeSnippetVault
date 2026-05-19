@@ -15,8 +15,8 @@
             --bg-dark: #0d1117;
             --bg-card: #161b22;
             --border-color: #30363d;
-            --text-primary: #e6edf3;
-            --text-secondary: #8b949e;
+            --text-primary: #ffffff;
+            --text-secondary: #e0e6ed;
             --accent-blue: #58a6ff;
             --accent-green: #3fb950;
             --accent-red: #f85149;
@@ -101,6 +101,7 @@
             border: 1px solid var(--border-color);
             border-radius: 8px;
             margin-bottom: 20px;
+            color: var(--text-primary);
         }
 
         .card-header {
@@ -110,10 +111,16 @@
             display: flex;
             justify-content: space-between;
             align-items: center;
+            color: var(--text-primary);
         }
 
         .card-body {
             padding: 20px;
+            color: var(--text-primary);
+        }
+
+        .card-title, .card-text, h2, h3, h4, h5, h6 {
+            color: var(--text-primary);
         }
 
         /* 代码块样式 */
@@ -627,14 +634,23 @@
                     </div>
 
                     <!-- 最热门片段 -->
-                    ${stats.most_popular_snippet ? `
+                    ${stats.most_popular_snippets && stats.most_popular_snippets.length ? `
                     <div class="card mb-4">
                         <div class="card-header">
-                            <i class="fas fa-fire"></i> 最热门片段
+                            <i class="fas fa-fire"></i> 热门片段 TOP5
                         </div>
-                        <div class="card-body">
-                            <h5>${escapeHtml(stats.most_popular_snippet.title)}</h5>
-                            <div class="usage-count">使用次数: ${stats.most_popular_snippet.usage_count}</div>
+                        <div class="card-body p-0">
+                            ${stats.most_popular_snippets.map((s, i) => `
+                            <div class="snippet-item" data-id="${s.id}" style="cursor:pointer">
+                                <div class="snippet-title">
+                                    <span class="badge me-2 ${i === 0 ? 'bg-warning text-dark' : 'bg-secondary'}">#${i + 1}</span>
+                                    ${escapeHtml(s.title)}
+                                </div>
+                                <div class="snippet-meta">
+                                    <span><i class="fas fa-chart-line"></i> 使用 ${s.usage_count} 次</span>
+                                </div>
+                            </div>
+                            `).join('')}
                         </div>
                     </div>
                     ` : ''}
@@ -835,29 +851,49 @@
         showLoading(false);
     }
 
-    async function loadTagsView() {
+    let currentTagFilter = '';
+
+    async function loadTagsView(filterTag) {
         showLoading(true);
         try {
             const tags = await apiCall('/tags');
-            const html = `
+            const filteredSnippets = filterTag ? await apiCall(`/snippets/by-tag/${encodeURIComponent(filterTag)}`) : [];
+
+            let html = `
                 <div class="container-fluid">
                     <h2 class="mb-4"><i class="fas fa-tags"></i> 标签管理</h2>
-                    <div class="card">
+                    <div class="card mb-4">
                         <div class="card-header">所有标签 (${tags.length})</div>
                         <div class="card-body">
                             <div class="d-flex flex-wrap gap-2">
                                 ${tags.map(tag => `
-                                    <span class="tag" style="font-size: ${Math.max(12, 14 + tag[1] * 0.5)}px">
+                                    <a href="#" class="tag" style="font-size: ${Math.max(12, 14 + tag[1] * 0.5)}px; text-decoration: none; cursor: pointer;" onclick="event.preventDefault(); loadTagsView('${escapeHtml(tag[0]).replace(/'/g, "\\'")}')">
                                         ${escapeHtml(tag[0])} (${tag[1]})
-                                    </span>
+                                    </a>
                                 `).join('')}
                             </div>
                         </div>
-                    </div>
-                </div>
-            `;
+                    </div>`;
+
+            if (filterTag) {
+                html += `
+                    <div class="card">
+                        <div class="card-header">
+                            <i class="fas fa-filter"></i> 标签「${escapeHtml(filterTag)}」下的片段 (${filteredSnippets.length})
+                            <button class="btn btn-sm btn-outline-secondary" onclick="loadTagsView()">清除筛选</button>
+                        </div>
+                        <div class="card-body p-0">
+                            ${renderSnippetList(filteredSnippets)}
+                        </div>
+                    </div>`;
+            }
+
+            html += `</div>`;
             document.getElementById('mainContent').innerHTML = html;
-        } catch (e) {}
+            attachSnippetClickEvents();
+        } catch (e) {
+            console.error(e);
+        }
         showLoading(false);
     }
 
@@ -882,18 +918,48 @@
         showLoading(false);
     }
 
-    async function loadImportView() {
-        const html = `
-            <div class="container-fluid">
-                <h2 class="mb-4"><i class="fas fa-file-import"></i> 导入/导出</h2>
+    let selectedExportIds = new Set();
 
-                <div class="card mb-4">
-                    <div class="card-header">导出片段</div>
-                    <div class="card-body">
-                        <button class="btn btn-primary" id="exportAllBtn"><i class="fas fa-download"></i> 导出所有片段</button>
-                        <button class="btn btn-secondary" id="exportSampleBtn"><i class="fas fa-download"></i> 导出示例数据</button>
+    async function loadImportView() {
+        showLoading(true);
+        try {
+            const snippets = await apiCall('/snippets?limit=1000');
+            selectedExportIds = new Set();
+            const html = `
+                <div class="container-fluid">
+                    <h2 class="mb-4"><i class="fas fa-file-import"></i> 导入/导出</h2>
+
+                    <div class="card mb-4">
+                        <div class="card-header">导出片段</div>
+                        <div class="card-body">
+                            <button class="btn btn-primary me-2" id="exportAllBtn"><i class="fas fa-download"></i> 导出所有</button>
+                            <button class="btn btn-success me-2" id="exportSelectedBtn" disabled><i class="fas fa-check-double"></i> 导出选中 (0)</button>
+
+                            <hr>
+                            <div class="mb-2">
+                                <small class="text-secondary">勾选要导出的片段（支持全选/反选）</small>
+                                <div class="mt-2">
+                                    <button class="btn btn-sm btn-outline-primary" id="selectAllBtn">全选</button>
+                                    <button class="btn btn-sm btn-outline-secondary" id="deselectAllBtn">清空</button>
+                                </div>
+                            </div>
+                            <div class="snippet-list" style="max-height: 400px; overflow-y: auto;">
+                                ${snippets.map(s => `
+                                    <label class="snippet-item d-flex align-items-center gap-3" style="cursor:pointer; user-select:none;">
+                                        <input type="checkbox" class="export-checkbox" value="${s.id}" style="flex-shrink:0;">
+                                        <div class="flex-grow-1">
+                                            <div class="snippet-title">${escapeHtml(s.title)}</div>
+                                            <div class="snippet-meta">
+                                                <span>${escapeHtml(s.language)}</span>
+                                                <span>${escapeHtml(s.category)}</span>
+                                                ${s.tags && s.tags.length ? `<span>${s.tags.slice(0, 3).join(', ')}</span>` : ''}
+                                            </div>
+                                        </div>
+                                    </label>
+                                `).join('')}
+                            </div>
+                        </div>
                     </div>
-                </div>
 
                 <div class="card">
                     <div class="card-header">导入片段</div>
@@ -919,10 +985,37 @@
             window.open('/api/export', '_blank');
         });
 
-        document.getElementById('exportSampleBtn')?.addEventListener('click', async () => {
-            await apiCall('/export-sample', 'POST');
-            showToast('示例数据已导出到 snippets_export.json');
+        document.getElementById('exportSelectedBtn')?.addEventListener('click', () => {
+            const ids = [...document.querySelectorAll('.export-checkbox:checked')].map(cb => cb.value);
+            if (ids.length === 0) {
+                showToast('请先勾选要导出的片段', 'error');
+                return;
+            }
+            window.open(`/api/export?ids=${ids.join(',')}`, '_blank');
         });
+
+        document.getElementById('selectAllBtn')?.addEventListener('click', () => {
+            document.querySelectorAll('.export-checkbox').forEach(cb => cb.checked = true);
+            updateExportButton();
+        });
+
+        document.getElementById('deselectAllBtn')?.addEventListener('click', () => {
+            document.querySelectorAll('.export-checkbox').forEach(cb => cb.checked = false);
+            updateExportButton();
+        });
+
+        document.querySelectorAll('.export-checkbox').forEach(cb => {
+            cb.addEventListener('change', updateExportButton);
+        });
+
+        function updateExportButton() {
+            const count = document.querySelectorAll('.export-checkbox:checked').length;
+            const btn = document.getElementById('exportSelectedBtn');
+            if (btn) {
+                btn.disabled = count === 0;
+                btn.innerHTML = `<i class="fas fa-check-double"></i> 导出选中 (${count})`;
+            }
+        }
 
         document.getElementById('importBtn')?.addEventListener('click', async () => {
             const file = document.getElementById('importFile').files[0];
@@ -948,6 +1041,10 @@
                 showToast('导入失败', 'error');
             }
         });
+        } catch (e) {
+            showToast('加载失败', 'error');
+        }
+        showLoading(false);
     }
 
     async function addSnippet() {

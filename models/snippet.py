@@ -20,14 +20,15 @@ class Snippet:
         self.created_at: Optional[str] = None
         self.updated_at: Optional[str] = None
 
-    def to_dict(self) -> Dict:
+    def to_dict(self, as_list: bool = True) -> Dict:
         """转换为字典格式"""
+        tags_value = self.tags if as_list else (",".join(self.tags) if self.tags else "")
         return {
             "id": self.id,
             "title": self.title,
             "code": self.code,
             "language": self.language,
-            "tags": ",".join(self.tags) if self.tags else "",
+            "tags": tags_value,
             "category": self.category,
             "usage_count": self.usage_count,
             "created_at": self.created_at,
