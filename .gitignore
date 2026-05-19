@@ -1,0 +1,27 @@
+# Python 缓存
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# 虚拟环境
+venv/
+.venv/
+env/
+
+# IDE
+.idea/
+.vscode/
+
+# 数据库文件（运行时生成）
+*.db
+
+# 导出文件（用户生成）
+snippets_export_*.json
+snippets_export_*.md
+snippets_export_*.html
+test_export.*
+
+# 系统
+.DS_Store
+Thumbs.db

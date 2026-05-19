@@ -18,17 +18,22 @@ CORS(app)
 # 初始化 Vault
 vault = Vault("snippets.db")
 
-# HTML 模板（从上面的文件读取）
-HTML_TEMPLATE = open('templates/index.html', 'r', encoding='utf-8').read() if os.path.exists(
-    'templates/index.html') else None
+
+def _get_index_html():
+    """惰性加载首页 HTML，避免模块导入时目录未就绪的问题"""
+    for path in ['templates/index.html', 'index.html']:
+        if os.path.exists(path):
+            return open(path, 'r', encoding='utf-8').read()
+    return None
 
 
 @app.route('/')
 def index():
     """主页"""
-    if HTML_TEMPLATE:
-        return render_template_string(HTML_TEMPLATE)
-    return open('index.html', 'r', encoding='utf-8').read()
+    html = _get_index_html()
+    if html:
+        return render_template_string(html)
+    return "<h1>Code Snippet Vault</h1><p>未找到 index.html</p>"
 
 
 # ============================================
@@ -382,10 +387,11 @@ if __name__ == '__main__':
     if not os.path.exists('templates'):
         os.makedirs('templates')
 
-    # 保存 HTML 模板
-    with open('templates/index.html', 'w', encoding='utf-8') as f:
-        f.write(open(__file__.replace('app.py', 'index.html'), 'r', encoding='utf-8').read() if os.path.exists(
-            'index.html') else HTML_TEMPLATE or '')
+    # 确保 templates/index.html 存在
+    html_src = _get_index_html()
+    if html_src and not os.path.exists('templates/index.html'):
+        with open('templates/index.html', 'w', encoding='utf-8') as f:
+            f.write(html_src)
 
     print("=" * 50)
     print("🚀 代码片段管理器已启动")
