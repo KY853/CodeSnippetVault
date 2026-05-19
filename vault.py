@@ -196,6 +196,15 @@ class Vault:
         results = self.db.execute_query(query, (f"%{tag}%",))
         return [self._row_to_snippet(row) for row in results]
 
+    def get_snippets_by_ids(self, ids: List[int]) -> List[Snippet]:
+        """根据ID列表批量获取片段"""
+        if not ids:
+            return []
+        placeholders = ",".join(["?"] * len(ids))
+        query = f"SELECT * FROM snippets WHERE id IN ({placeholders}) ORDER BY updated_at DESC"
+        results = self.db.execute_query(query, tuple(ids))
+        return [self._row_to_snippet(row) for row in results]
+
     # ============================================
     # 分类管理
     # ============================================
@@ -360,7 +369,7 @@ class Vault:
         data = {
             "version": "1.0",
             "export_time": datetime.now().isoformat(),
-            "snippets": [s.to_dict() for s in snippets]
+            "snippets": [s.to_dict(as_list=False) for s in snippets]
         }
 
         try:
@@ -408,15 +417,14 @@ class Vault:
         )
         most_used_lang = lang_result[0][0] if lang_result else "None"
 
-        # 最热门片段
-        popular = self.db.execute_query(
-            "SELECT id, title, usage_count FROM snippets ORDER BY usage_count DESC LIMIT 1"
+        # 最热门片段（前5）
+        popular_rows = self.db.execute_query(
+            "SELECT id, title, usage_count FROM snippets ORDER BY usage_count DESC LIMIT 5"
         )
-        most_popular = {
-            "id": popular[0][0],
-            "title": popular[0][1],
-            "usage_count": popular[0][2]
-        } if popular else None
+        most_popular = [
+            {"id": r[0], "title": r[1], "usage_count": r[2]}
+            for r in popular_rows
+        ] if popular_rows else []
 
         # 分类统计
         categories = self.get_all_categories()
@@ -429,7 +437,7 @@ class Vault:
             "total_categories": len(categories),
             "total_tags": len(tags),
             "most_used_language": most_used_lang,
-            "most_popular_snippet": most_popular
+            "most_popular_snippets": most_popular
         }
 
     # ============================================
