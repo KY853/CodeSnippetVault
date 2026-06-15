@@ -216,10 +216,16 @@
             color: var(--text-secondary);
         }
 
+        .match-source {
+            font-size: 0.75rem;
+            opacity: 0.7;
+        }
+
         /* 搜索高亮 */
         .search-highlight {
-            background-color: rgba(210, 153, 34, 0.4);
-            border-radius: 2px;
+            font-weight: 700;
+            color: #ffd700;
+            background: none;
         }
 
         /* 模态框 */
@@ -764,7 +770,10 @@
                 const results = await apiCall(`/search?keyword=${encodeURIComponent(keyword)}&field=${field}`);
                 const resultsHtml = `
                     <div class="card">
-                        <div class="card-header">找到 ${results.length} 个结果</div>
+                        <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-1">
+                            <span>找到 ${results.length} 个结果</span>
+                            <span class="text-secondary" style="font-size: 0.75rem;">按匹配字数量排序 · ●○○ 部分匹配 · ●●● 完整匹配</span>
+                        </div>
                         <div class="card-body p-0">
                             ${results.map(result => renderSearchResult(result, keyword)).join('')}
                         </div>
@@ -853,25 +862,40 @@
 
     let currentTagFilter = '';
 
+    let tagFilterKeyword = '';
+
     async function loadTagsView(filterTag) {
         showLoading(true);
         try {
             const tags = await apiCall('/tags');
             const filteredSnippets = filterTag ? await apiCall(`/snippets/by-tag/${encodeURIComponent(filterTag)}`) : [];
 
+            // 如果有搜索关键词，过滤标签
+            let displayTags = tags;
+            if (tagFilterKeyword) {
+                displayTags = tags.filter(tag => tag[0].includes(tagFilterKeyword));
+            }
+
             let html = `
                 <div class="container-fluid">
                     <h2 class="mb-4"><i class="fas fa-tags"></i> 标签管理</h2>
                     <div class="card mb-4">
-                        <div class="card-header">所有标签 (${tags.length})</div>
+                        <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
+                            <span>所有标签 (${displayTags.length}${tagFilterKeyword ? ` / ${tags.length} 个` : ''})</span>
+                            <div class="d-flex gap-2">
+                                <input type="text" class="form-control form-control-sm" style="width: 200px" placeholder="搜索标签…" id="tagSearchInput" value="${escapeHtml(tagFilterKeyword)}">
+                                ${tagFilterKeyword ? `<button class="btn btn-sm btn-outline-secondary" onclick="tagFilterKeyword=''; loadTagsView()">清除</button>` : ''}
+                            </div>
+                        </div>
                         <div class="card-body">
+                            ${displayTags.length === 0 ? '<p class="text-secondary m-0">没有匹配的标签</p>' : `
                             <div class="d-flex flex-wrap gap-2">
-                                ${tags.map(tag => `
+                                ${displayTags.map(tag => `
                                     <a href="#" class="tag" style="font-size: ${Math.max(12, 14 + tag[1] * 0.5)}px; text-decoration: none; cursor: pointer;" onclick="event.preventDefault(); loadTagsView('${escapeHtml(tag[0]).replace(/'/g, "\\'")}')">
                                         ${escapeHtml(tag[0])} (${tag[1]})
                                     </a>
                                 `).join('')}
-                            </div>
+                            </div>`}
                         </div>
                     </div>`;
 
@@ -890,6 +914,22 @@
 
             html += `</div>`;
             document.getElementById('mainContent').innerHTML = html;
+
+            // 标签搜索：按 Enter 或失去焦点时触发过滤
+            const tagSearchInput = document.getElementById('tagSearchInput');
+            if (tagSearchInput) {
+                const doFilter = () => {
+                    tagFilterKeyword = tagSearchInput.value.trim();
+                    loadTagsView(filterTag);
+                };
+                tagSearchInput.addEventListener('keydown', (e) => {
+                    if (e.key === 'Enter') doFilter();
+                });
+                tagSearchInput.addEventListener('blur', doFilter);
+                // 自动聚焦搜索框
+                tagSearchInput.focus();
+            }
+
             attachSnippetClickEvents();
         } catch (e) {
             console.error(e);
@@ -1161,29 +1201,98 @@
         `).join('');
     }
 
+    /** 高亮文本中的中文字符：给关键词中的每个中文字加高亮 */
+    function highlightChineseChars(text, chineseChars) {
+        if (!chineseChars || chineseChars.length === 0) return escapeHtml(text);
+        // 用正则替换每个匹配的中文字为高亮版本
+        let result = escapeHtml(text);
+        // 按长度从大到小排序，避免部分重叠问题
+        const sorted = [...chineseChars].sort((a, b) => b.length - a.length);
+        for (const c of sorted) {
+            const escaped = escapeHtml(c);
+            const re = new RegExp(escaped, 'g');
+            result = result.replace(re, `<mark class="search-highlight">${escaped}</mark>`);
+        }
+        return result;
+    }
+
     function renderSearchResult(result, keyword) {
         const snippet = result.snippet;
-        const matches = result.matches;
-        const pattern = new RegExp(`(${escapeRegex(keyword)})`, 'gi');
+        const matches = result.matches || [];
+        const score = result.score || 0;
+        const matchedChars = result.matched_chars || [];
+        const totalChars = result.total_chars || 0;
 
-        let highlightedTitle = snippet.title;
-        let highlightedCode = snippet.code.substring(0, 200);
+        // 提取各字段匹配信息
+        const titleMatch = matches.find(m => m.field === 'title');
+        const tagMatch = matches.find(m => m.field === 'tags');
+        const codeMatch = matches.find(m => m.field === 'code');
 
-        if (matches.some(m => m.field === 'title')) {
+        // 标题高亮：标题中的所有匹配中文字加高亮
+        let highlightedTitle = escapeHtml(snippet.title);
+        if (titleMatch && titleMatch.matched_chars && titleMatch.matched_chars.length > 0) {
+            const chars = titleMatch.matched_chars;
+            for (const c of chars) {
+                const escaped = escapeHtml(c);
+                const re = new RegExp(escaped, 'g');
+                highlightedTitle = highlightedTitle.replace(re, `<mark class="search-highlight">${escaped}</mark>`);
+            }
+        } else if (codeMatch) {
+            // 纯代码匹配用原关键词高亮
+            const pattern = new RegExp(`(${escapeRegex(keyword)})`, 'gi');
             highlightedTitle = snippet.title.replace(pattern, '<mark class="search-highlight">$1</mark>');
         }
-        if (matches.some(m => m.field === 'code')) {
-            highlightedCode = snippet.code.substring(0, 300).replace(pattern, '<mark class="search-highlight">$1</mark>');
+
+        // 代码预览（带高亮）
+        let highlightedCode = snippet.code.substring(0, 300);
+        if (codeMatch) {
+            const pattern = new RegExp(`(${escapeRegex(keyword)})`, 'gi');
+            highlightedCode = highlightedCode.replace(pattern, '<mark class="search-highlight">$1</mark>');
         }
+
+        // 匹配详情：显示匹配到了哪些字
+        let matchDetail = '';
+        if (matchedChars.length > 0) {
+            const pct = totalChars > 0 ? Math.round(matchedChars.length / totalChars * 100) : 0;
+            const highlightHtml = matchedChars.map(c => `<mark class="search-highlight" style="padding: 0 1px;">${escapeHtml(c)}</mark>`).join('');
+            if (pct < 100) {
+                matchDetail = `匹配关键词中 ${highlightHtml} (${pct}%)`;
+            } else {
+                matchDetail = `完整匹配 🎯`;
+            }
+        } else if (codeMatch) {
+            matchDetail = `代码中包含「${escapeHtml(keyword)}」`;
+        }
+
+        // 标签关联提示
+        let tagHint = '';
+        if (tagMatch && snippet.tags && snippet.tags.length > 0) {
+            const matchTags = snippet.tags
+                .filter(t => tagMatch.matched_chars && tagMatch.matched_chars.some(c => t.includes(c)))
+                .map(t => `「${escapeHtml(t)}」`).join('、');
+            if (matchTags) {
+                tagHint = `<div class="text-secondary match-source"><i class="fas fa-hashtag" style="font-size: 0.7rem;"></i> 关联标签 ${matchTags}</div>`;
+            }
+        }
+
+        const showCode = !(tagMatch && !codeMatch && !titleMatch);
+        const scoreDots = score >= 200 ? '●●●' : score >= 100 ? '●●○' : '●○○';
 
         return `
             <div class="snippet-item" data-id="${snippet.id}">
-                <div class="snippet-title">${highlightedTitle}</div>
-                <pre class="mt-2 mb-0" style="background: #0a0c10; padding: 8px; border-radius: 4px; font-size: 0.75rem; max-height: 100px; overflow: auto;">${escapeHtml(highlightedCode)}</pre>
+                <div class="snippet-title d-flex align-items-start gap-2">
+                    <div class="flex-grow-1">
+                        <div>${highlightedTitle}</div>
+                        ${matchDetail ? `<div class="text-secondary match-source" style="font-size: 0.75rem; margin-top: 2px;">🔍 ${matchDetail}</div>` : ''}
+                        ${tagHint}
+                    </div>
+                    <span class="text-secondary flex-shrink-0" style="font-size: 0.6rem; opacity: 0.5; line-height: 1.4;">${scoreDots}</span>
+                </div>
+                ${showCode ? `<pre class="mt-2 mb-0" style="background: #0a0c10; padding: 8px; border-radius: 4px; font-size: 0.75rem; max-height: 100px; overflow: auto;">${escapeHtml(highlightedCode)}</pre>` : ''}
                 <div class="snippet-meta mt-2">
-                    <span>🏷️ ${snippet.language}</span>
-                    <span>📁 ${snippet.category}</span>
-                    ${snippet.tags && snippet.tags.length ? `<span># ${snippet.tags.slice(0, 3).join(', ')}</span>` : ''}
+                    <span><i class="fas fa-tag"></i> ${escapeHtml(snippet.language)}</span>
+                    <span><i class="fas fa-folder"></i> ${escapeHtml(snippet.category)}</span>
+                    ${snippet.tags && snippet.tags.length ? `<span><i class="fas fa-hashtag"></i> ${snippet.tags.map(t => escapeHtml(t)).join(', ')}</span>` : ''}
                 </div>
             </div>
         `;

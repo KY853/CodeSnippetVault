@@ -36,7 +36,11 @@ def index():
     """主页"""
     html = _get_index_html()
     if html:
-        return render_template_string(html)
+        resp = app.make_response(render_template_string(html))
+        resp.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
+        resp.headers['Pragma'] = 'no-cache'
+        resp.headers['Expires'] = '0'
+        return resp
     return "<h1>Code Snippet Vault</h1><p>未找到 index.html</p>"
 
 
@@ -130,12 +134,15 @@ def search():
 
     results = vault.search(keyword, field)
 
-    # 序列化结果（包含匹配信息）
+    # 序列化结果（包含匹配信息、分数、匹配详情）
     serialized = []
     for r in results:
         serialized.append({
             'snippet': r['snippet'].to_dict(),
-            'matches': r['matches']
+            'matches': r['matches'],
+            'score': r.get('score', 0),
+            'matched_chars': r.get('matched_chars', []),
+            'total_chars': r.get('total_chars', 0),
         })
 
     return jsonify({'success': True, 'data': serialized})

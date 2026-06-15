@@ -127,60 +127,86 @@ class Vault:
 
     def search(self, keyword: str, field: str = "all") -> List[Dict]:
         """
-        正则表达式全文搜索，返回带匹配位置的结果
+        全文搜索：按匹配相似度排序
+        
+        搜索策略：
+        1. 完整关键词匹配（标题/标签精确包含关键词）→ 最高分
+        2. 中文单字匹配（标题/标签包含搜索词中的每一个中文字）→ 中分
+        3. 中文任意单字匹配（标题/标签包含搜索词中的至少一个中文字）→ 低分
+        
+        最终按匹配字数从多到少排序。
         """
         if field not in ["all", "title", "code", "tags"]:
             field = "all"
 
-        try:
-            pattern = re.compile(keyword, re.IGNORECASE)
-        except re.error:
-            # 如果不是有效正则，当作普通字符串
-            pattern = re.compile(re.escape(keyword), re.IGNORECASE)
+        # 提取关键词中的中文字（"快排" → ['快','排']）
+        chinese_chars = [c for c in keyword if '\u4e00' <= c <= '\u9fff']
+        search_title = field in ["all", "title"]
+        search_tags = field in ["all", "tags"]
+        search_code = field in ["all", "code"]
 
-        # 获取所有片段
         snippets = self.get_all_snippets(limit=1000)
         results = []
 
         for snippet in snippets:
+            # 计算标题匹配
+            title_matched_chars = []
+            if search_title and chinese_chars:
+                title_matched_chars = [c for c in chinese_chars if c in snippet.title]
+
+            # 计算标签匹配
+            all_tag_text = "".join(snippet.tags)
+            tag_matched_chars = []
+            if search_tags and chinese_chars:
+                tag_matched_chars = [c for c in chinese_chars if c in all_tag_text]
+
+            # 计算代码匹配次数（仅精确关键词）
+            code_match_count = 0
+            if search_code:
+                code_match_count = snippet.code.lower().count(keyword.lower())
+
+            # 去重合并匹配到的中文字
+            all_matched = list(dict.fromkeys(title_matched_chars + tag_matched_chars))
+            matched_count = len(all_matched)
+            total_chars = len(chinese_chars)
+
+            # 没有任何匹配 → 跳过
+            if matched_count == 0 and code_match_count == 0:
+                continue
+
+            # 构建 matches 信息
             matches = []
-
-            # 搜索标题
-            if field in ["all", "title"]:
-                for match in pattern.finditer(snippet.title):
-                    matches.append({
-                        "field": "title",
-                        "start": match.start(),
-                        "end": match.end(),
-                        "context": self._get_context(snippet.title, match.start(), match.end())
-                    })
-
-            # 搜索代码
-            if field in ["all", "code"]:
-                for match in pattern.finditer(snippet.code):
-                    matches.append({
-                        "field": "code",
-                        "start": match.start(),
-                        "end": match.end(),
-                        "context": self._get_context(snippet.code, match.start(), match.end(), max_len=80)
-                    })
-
-            # 搜索标签
-            if field in ["all", "tags"]:
-                tags_str = ",".join(snippet.tags)
-                for match in pattern.finditer(tags_str):
-                    matches.append({
-                        "field": "tags",
-                        "start": match.start(),
-                        "end": match.end(),
-                        "context": self._get_context(tags_str, match.start(), match.end())
-                    })
-
-            if matches:
-                results.append({
-                    "snippet": snippet,
-                    "matches": matches
+            if title_matched_chars:
+                matches.append({
+                    "field": "title",
+                    "matched_chars": title_matched_chars,
+                    "match_type": "exact" if matched_count == total_chars else "fuzzy",
                 })
+            if tag_matched_chars:
+                matches.append({
+                    "field": "tags",
+                    "matched_chars": tag_matched_chars,
+                    "match_type": "exact" if matched_count == total_chars else "fuzzy",
+                })
+            if code_match_count > 0:
+                matches.append({
+                    "field": "code",
+                    "match_type": "exact",
+                })
+
+            # 计算分数 = 匹配字数 * 权重
+            score = matched_count * 100 + code_match_count * 30
+
+            results.append({
+                "snippet": snippet,
+                "matches": matches,
+                "score": score,
+                "matched_chars": all_matched,
+                "total_chars": total_chars
+            })
+
+        # 按匹配字数从多到少排序，再按分数
+        results.sort(key=lambda r: (len(r["matched_chars"]), r["score"]), reverse=True)
 
         return results
 
