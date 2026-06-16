@@ -441,6 +441,108 @@ class Vault:
         return count
 
     # ============================================
+    # Markdown / HTML 导出（带语法高亮）
+    # ============================================
+
+    def export_to_markdown(self, filepath: str, snippets: List[Snippet] = None) -> bool:
+        """导出为带语法高亮标注的 Markdown"""
+        if snippets is None:
+            snippets = self.get_all_snippets(limit=10000)
+        if not snippets:
+            return False
+
+        lines = [
+            "# 代码片段集 (Code Snippet Vault)",
+            "",
+            f"导出时间: {datetime.now():%Y-%m-%d %H:%M:%S}",
+            f"共 {len(snippets)} 条片段",
+            "",
+            "---",
+            "",
+        ]
+
+        for s in snippets:
+            tags_str = ", ".join(s.tags) if s.tags else "无"
+            lines.append(f"## {s.title}")
+            lines.append("")
+            lines.append(f"- **语言**: {s.language}  |  **分类**: {s.category}  |  **标签**: {tags_str}  |  **使用**: {s.usage_count} 次")
+            lines.append("")
+            lines.append(f"```{s.language}")
+            lines.append(s.code)
+            lines.append("```")
+            lines.append("")
+            lines.append("---")
+            lines.append("")
+
+        try:
+            with open(filepath, "w", encoding="utf-8") as f:
+                f.write("\n".join(lines))
+            return True
+        except Exception:
+            return False
+
+    def export_to_html(self, filepath: str, snippets: List[Snippet] = None) -> bool:
+        """导出为带 highlight.js 语法高亮的独立 HTML"""
+        if snippets is None:
+            snippets = self.get_all_snippets(limit=10000)
+        if not snippets:
+            return False
+
+        snippet_html = []
+        for s in snippets:
+            code_escaped = s.code.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+            tags_html = " ".join(f'<span class="tag">{t}</span>' for t in s.tags) if s.tags else ""
+            snippet_html.append(f"""
+    <div class="snippet">
+        <h2>{s.title}</h2>
+        <div class="meta">
+            <span class="lang">{s.language}</span>
+            <span class="cat">{s.category}</span>
+            {tags_html}
+            <span class="usage">使用 {s.usage_count} 次</span>
+        </div>
+        <pre><code class="language-{s.language}">{code_escaped}</code></pre>
+    </div>""")
+
+        html = f"""<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <title>代码片段集 - Code Snippet Vault</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/atom-one-dark.min.css">
+    <style>
+        * {{ margin: 0; padding: 0; box-sizing: border-box; }}
+        body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #0d1117; color: #e6edf3; padding: 40px; }}
+        .container {{ max-width: 900px; margin: 0 auto; }}
+        h1 {{ color: #58a6ff; margin-bottom: 8px; }}
+        .subtitle {{ color: #8b949e; margin-bottom: 30px; }}
+        .snippet {{ background: #161b22; border: 1px solid #30363d; border-radius: 8px; margin-bottom: 24px; padding: 20px; }}
+        .snippet h2 {{ color: #58a6ff; font-size: 1.2rem; margin: 0 0 10px 0; }}
+        .meta {{ color: #8b949e; font-size: 0.85rem; margin-bottom: 12px; display: flex; gap: 12px; flex-wrap: wrap; }}
+        .tag {{ display: inline-block; padding: 2px 8px; background: rgba(88,166,255,.15); color: #58a6ff; border-radius: 20px; font-size: 0.75rem; }}
+        pre {{ margin: 0; border-radius: 6px; overflow-x: auto; }}
+        code {{ font-family: 'SF Mono', 'JetBrains Mono', monospace; font-size: 0.85rem; }}
+    </style>
+</head>
+<body>
+<div class="container">
+    <h1>代码片段集</h1>
+    <div class="subtitle">导出时间: {datetime.now():%Y-%m-%d %H:%M:%S} | 共 {len(snippets)} 条片段</div>
+    {''.join(snippet_html)}
+</div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+<script>hljs.highlightAll();</script>
+</body>
+</html>"""
+
+        try:
+            with open(filepath, "w", encoding="utf-8") as f:
+                f.write(html)
+            return True
+        except Exception:
+            return False
+
+    # ============================================
     # 统计功能
     # ============================================
 

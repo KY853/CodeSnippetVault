@@ -294,6 +294,50 @@ def export_snippets():
     )
 
 
+@app.route('/api/export/markdown')
+def export_markdown():
+    """导出 Markdown（支持 ?ids=1,2,3 筛选）"""
+    ids_param = request.args.get('ids', '')
+    fd, temp_path = tempfile.mkstemp(suffix='.md')
+    os.close(fd)
+    if ids_param:
+        ids = [int(x.strip()) for x in ids_param.split(',') if x.strip().isdigit()]
+        snippets = [vault.get_snippet(sid) for sid in ids if vault.get_snippet(sid)]
+        success = vault.export_to_markdown(temp_path, snippets=snippets) if snippets else False
+    else:
+        success = vault.export_to_markdown(temp_path)
+    if not success:
+        return jsonify({'success': False, 'error': '导出失败'}), 500
+    return send_file(
+        temp_path,
+        as_attachment=True,
+        download_name=f'snippets_{datetime.now().strftime("%Y%m%d_%H%M%S")}.md',
+        mimetype='text/markdown'
+    )
+
+
+@app.route('/api/export/html')
+def export_html():
+    """导出 HTML（支持 ?ids=1,2,3 筛选）"""
+    ids_param = request.args.get('ids', '')
+    fd, temp_path = tempfile.mkstemp(suffix='.html')
+    os.close(fd)
+    if ids_param:
+        ids = [int(x.strip()) for x in ids_param.split(',') if x.strip().isdigit()]
+        snippets = [vault.get_snippet(sid) for sid in ids if vault.get_snippet(sid)]
+        success = vault.export_to_html(temp_path, snippets=snippets) if snippets else False
+    else:
+        success = vault.export_to_html(temp_path)
+    if not success:
+        return jsonify({'success': False, 'error': '导出失败'}), 500
+    return send_file(
+        temp_path,
+        as_attachment=True,
+        download_name=f'snippets_{datetime.now().strftime("%Y%m%d_%H%M%S")}.html',
+        mimetype='text/html'
+    )
+
+
 @app.route('/api/import', methods=['POST'])
 def import_snippets():
     """导入JSON文件"""

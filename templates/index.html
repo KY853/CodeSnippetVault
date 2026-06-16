@@ -996,8 +996,28 @@
                     <div class="card mb-4">
                         <div class="card-header">导出片段</div>
                         <div class="card-body">
-                            <button class="btn btn-primary me-2" id="exportAllBtn"><i class="fas fa-download"></i> 导出所有</button>
-                            <button class="btn btn-success me-2" id="exportSelectedBtn" disabled><i class="fas fa-check-double"></i> 导出选中 (0)</button>
+                            <div class="d-flex gap-2 flex-wrap mb-3">
+                                <div class="dropdown d-inline-block">
+                                    <button class="btn btn-primary dropdown-toggle" data-bs-toggle="dropdown">
+                                        <i class="fas fa-download"></i> 导出全部
+                                    </button>
+                                    <ul class="dropdown-menu dropdown-menu-dark">
+                                        <li><a class="dropdown-item" href="#" id="exportAllBtn"><i class="fas fa-download"></i> JSON</a></li>
+                                        <li><a class="dropdown-item" href="#" id="exportAllMdBtn"><i class="fab fa-markdown"></i> Markdown</a></li>
+                                        <li><a class="dropdown-item" href="#" id="exportAllHtmlBtn"><i class="fas fa-file-code"></i> HTML</a></li>
+                                    </ul>
+                                </div>
+                                <div class="dropdown d-inline-block">
+                                    <button class="btn btn-success dropdown-toggle" data-bs-toggle="dropdown" id="exportSelectedDropdownBtn" disabled>
+                                        <i class="fas fa-check-double"></i> 导出选中 (0)
+                                    </button>
+                                    <ul class="dropdown-menu dropdown-menu-dark">
+                                        <li><a class="dropdown-item" href="#" id="exportSelectedJson"><i class="fas fa-download"></i> JSON</a></li>
+                                        <li><a class="dropdown-item" href="#" id="exportSelectedMd"><i class="fab fa-markdown"></i> Markdown</a></li>
+                                        <li><a class="dropdown-item" href="#" id="exportSelectedHtml"><i class="fas fa-file-code"></i> HTML</a></li>
+                                    </ul>
+                                </div>
+                            </div>
 
                             <hr>
                             <div class="mb-2">
@@ -1045,18 +1065,25 @@
         `;
         document.getElementById('mainContent').innerHTML = html;
 
-        document.getElementById('exportAllBtn')?.addEventListener('click', () => {
-            window.open('/api/export', '_blank');
+        document.getElementById('exportAllBtn')?.addEventListener('click', (e) => { e.preventDefault(); window.open('/api/export', '_blank'); });
+        document.getElementById('exportAllMdBtn')?.addEventListener('click', (e) => { e.preventDefault(); window.open('/api/export/markdown', '_blank'); });
+        document.getElementById('exportAllHtmlBtn')?.addEventListener('click', (e) => { e.preventDefault(); window.open('/api/export/html', '_blank'); });
+
+        document.getElementById('exportSelectedJson')?.addEventListener('click', (e) => {
+            e.preventDefault(); const ids = getSelectedExportIds(); if (ids) window.open(`/api/export?ids=${ids}`, '_blank');
+        });
+        document.getElementById('exportSelectedMd')?.addEventListener('click', (e) => {
+            e.preventDefault(); const ids = getSelectedExportIds(); if (ids) window.open(`/api/export/markdown?ids=${ids}`, '_blank');
+        });
+        document.getElementById('exportSelectedHtml')?.addEventListener('click', (e) => {
+            e.preventDefault(); const ids = getSelectedExportIds(); if (ids) window.open(`/api/export/html?ids=${ids}`, '_blank');
         });
 
-        document.getElementById('exportSelectedBtn')?.addEventListener('click', () => {
+        function getSelectedExportIds() {
             const ids = [...document.querySelectorAll('.export-checkbox:checked')].map(cb => cb.value);
-            if (ids.length === 0) {
-                showToast('请先勾选要导出的片段', 'error');
-                return;
-            }
-            window.open(`/api/export?ids=${ids.join(',')}`, '_blank');
-        });
+            if (ids.length === 0) { showToast('请先勾选要导出的片段', 'error'); return null; }
+            return ids.join(',');
+        }
 
         document.getElementById('selectAllBtn')?.addEventListener('click', () => {
             document.querySelectorAll('.export-checkbox').forEach(cb => cb.checked = true);
@@ -1074,9 +1101,10 @@
 
         function updateExportButton() {
             const count = document.querySelectorAll('.export-checkbox:checked').length;
-            const btn = document.getElementById('exportSelectedBtn');
+            const disabled = count === 0;
+            const btn = document.getElementById('exportSelectedDropdownBtn');
             if (btn) {
-                btn.disabled = count === 0;
+                btn.disabled = disabled;
                 btn.innerHTML = `<i class="fas fa-check-double"></i> 导出选中 (${count})`;
             }
         }
@@ -1212,17 +1240,63 @@
         if (!snippets || snippets.length === 0) {
             return '<div class="p-4 text-center text-secondary">暂无片段</div>';
         }
-        return snippets.map(s => `
+        return snippets.map(s => {
+            const codeEscaped = escapeHtml(s.code);
+            return `
             <div class="snippet-item" data-id="${s.id}">
-                <div class="snippet-title">${escapeHtml(s.title)}</div>
+                <div class="snippet-title d-flex justify-content-between align-items-start">
+                    <span>${escapeHtml(s.title)}</span>
+                    <span class="badge bg-secondary" style="font-size:0.65rem; cursor:pointer; flex-shrink:0;" onclick="event.stopPropagation(); toggleCode(this, ${s.id})">展开代码</span>
+                </div>
                 <div class="snippet-meta">
                     <span><i class="fas fa-tag"></i> ${escapeHtml(s.language)}</span>
                     <span><i class="fas fa-folder"></i> ${escapeHtml(s.category)}</span>
                     ${showUsage ? `<span><i class="fas fa-chart-line"></i> 使用 ${s.usage_count} 次</span>` : ''}
                     ${s.tags && s.tags.length ? `<span><i class="fas fa-hashtag"></i> ${s.tags.slice(0, 3).map(t => escapeHtml(t)).join(', ')}</span>` : ''}
                 </div>
-            </div>
-        `).join('');
+                <div class="code-block" id="codeBlock-${s.id}" style="display:none; margin-top:8px;">
+                    <div class="code-header">
+                        <span class="language"><i class="fas fa-code"></i> ${escapeHtml(s.language)}</span>
+                        <button class="copy-btn" onclick="copyCode(this, ${s.id})"><i class="fas fa-copy"></i> 复制</button>
+                    </div>
+                    <pre><code class="language-${s.language}">${codeEscaped}</code></pre>
+                </div>
+            </div>`;
+        }).join('');
+    }
+
+    function toggleCode(btn, id) {
+        const block = document.getElementById(`codeBlock-${id}`);
+        const isHidden = block.style.display === 'none';
+        block.style.display = isHidden ? 'block' : 'none';
+        btn.textContent = isHidden ? '收起代码' : '展开代码';
+        if (isHidden) {
+            // 渲染 highlight.js
+            const codeEl = block.querySelector('code');
+            if (codeEl && !codeEl.dataset.highlighted) {
+                hljs.highlightElement(codeEl);
+                codeEl.dataset.highlighted = '1';
+            }
+        }
+    }
+
+    async function copyCode(btn, id) {
+        const code = document.querySelector(`#codeBlock-${id} code`).textContent;
+        try {
+            await navigator.clipboard.writeText(code);
+            btn.innerHTML = '<i class="fas fa-check"></i> 已复制';
+            setTimeout(() => { btn.innerHTML = '<i class="fas fa-copy"></i> 复制'; }, 2000);
+        } catch (e) {
+            // fallback
+            const ta = document.createElement('textarea');
+            ta.value = code;
+            document.body.appendChild(ta);
+            ta.select();
+            document.execCommand('copy');
+            ta.remove();
+            btn.innerHTML = '<i class="fas fa-check"></i> 已复制';
+            setTimeout(() => { btn.innerHTML = '<i class="fas fa-copy"></i> 复制'; }, 2000);
+        }
     }
 
     /** 高亮文本中的中文字符：给关键词中的每个中文字加高亮 */
@@ -1372,6 +1446,8 @@
     // 全局函数供 onclick 使用
     window.deleteCategory = deleteCategory;
     window.renameCategory = renameCategory;
+    window.toggleCode = toggleCode;
+    window.copyCode = copyCode;
 </script>
 </body>
 </html>
