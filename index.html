@@ -510,6 +510,8 @@
 
     // 全局状态
     let currentView = 'dashboard';
+    let tagFilterKeyword = '';
+    const requestCache = {};
     let currentSnippetId = null;
 
     // 初始化
@@ -543,7 +545,16 @@
         document.getElementById('deleteSnippetBtn')?.addEventListener('click', deleteSnippet);
     }
 
-    async function apiCall(endpoint, method = 'GET', data = null) {
+    async function apiCall(endpoint, method = 'GET', data = null, opts = {}) {
+        // GET 请求缓存：同一端点 200ms 内只请求一次
+        if (method === 'GET' && !opts.noCache) {
+            const now = Date.now();
+            const cached = requestCache[endpoint];
+            if (cached && now - cached.time < 200) {
+                return cached.data;
+            }
+            requestCache[endpoint] = { time: now, data: null };  // 占位，防并发
+        }
         const options = {
             method,
             headers: {
@@ -559,6 +570,10 @@
             const result = await response.json();
             if (!result.success) {
                 throw new Error(result.error || '请求失败');
+            }
+            // 缓存成功返回的数据
+            if (method === 'GET' && !opts.noCache && requestCache[endpoint]) {
+                requestCache[endpoint].data = result.data;
             }
             return result.data;
         } catch (error) {
@@ -862,77 +877,86 @@
 
     let currentTagFilter = '';
 
-    let tagFilterKeyword = '';
+    function createTagElement(tag, count, filterTag) {
+        const a = document.createElement('a');
+        a.href = '#';
+        a.className = 'tag';
+        a.style.cssText = `font-size: ${Math.max(12, 14 + count * 0.5)}px; text-decoration: none; cursor: pointer;`;
+        a.textContent = `${tag} (${count})`;
+        a.addEventListener('click', (e) => {
+            e.preventDefault();
+            loadTagsView(tag);
+        });
+        return a;
+    }
 
     async function loadTagsView(filterTag) {
         showLoading(true);
         try {
-            const tags = await apiCall('/tags');
-            const filteredSnippets = filterTag ? await apiCall(`/snippets/by-tag/${encodeURIComponent(filterTag)}`) : [];
+            const [tags, filteredSnippets] = await Promise.all([
+                apiCall('/tags'),
+                filterTag ? apiCall(`/snippets/by-tag/${encodeURIComponent(filterTag)}`) : Promise.resolve([]),
+            ]);
 
-            // 如果有搜索关键词，过滤标签
-            let displayTags = tags;
-            if (tagFilterKeyword) {
-                displayTags = tags.filter(tag => tag[0].includes(tagFilterKeyword));
-            }
-
-            let html = `
+            // 容器
+            const container = document.getElementById('mainContent');
+            container.innerHTML = `
                 <div class="container-fluid">
                     <h2 class="mb-4"><i class="fas fa-tags"></i> 标签管理</h2>
                     <div class="card mb-4">
                         <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-2">
-                            <span>所有标签 (${displayTags.length}${tagFilterKeyword ? ` / ${tags.length} 个` : ''})</span>
+                            <span>所有标签 (${tags.length} 个)</span>
                             <div class="d-flex gap-2">
-                                <input type="text" class="form-control form-control-sm" style="width: 200px" placeholder="搜索标签…" id="tagSearchInput" value="${escapeHtml(tagFilterKeyword)}">
-                                ${tagFilterKeyword ? `<button class="btn btn-sm btn-outline-secondary" onclick="tagFilterKeyword=''; loadTagsView()">清除</button>` : ''}
+                                <input type="text" class="form-control form-control-sm" style="width: 200px" placeholder="搜索标签…" id="tagSearchInput">
                             </div>
                         </div>
-                        <div class="card-body">
-                            ${displayTags.length === 0 ? '<p class="text-secondary m-0">没有匹配的标签</p>' : `
-                            <div class="d-flex flex-wrap gap-2">
-                                ${displayTags.map(tag => `
-                                    <a href="#" class="tag" style="font-size: ${Math.max(12, 14 + tag[1] * 0.5)}px; text-decoration: none; cursor: pointer;" onclick="event.preventDefault(); loadTagsView('${escapeHtml(tag[0]).replace(/'/g, "\\'")}')">
-                                        ${escapeHtml(tag[0])} (${tag[1]})
-                                    </a>
-                                `).join('')}
-                            </div>`}
+                        <div class="card-body" id="tagsBody">
+                            <div class="d-flex flex-wrap gap-2" id="tagsList"></div>
                         </div>
-                    </div>`;
+                    </div>
+                    <div id="filteredByTag"></div>
+                </div>`;
 
-            if (filterTag) {
-                html += `
-                    <div class="card">
-                        <div class="card-header">
-                            <i class="fas fa-filter"></i> 标签「${escapeHtml(filterTag)}」下的片段 (${filteredSnippets.length})
-                            <button class="btn btn-sm btn-outline-secondary" onclick="loadTagsView()">清除筛选</button>
-                        </div>
-                        <div class="card-body p-0">
-                            ${renderSnippetList(filteredSnippets)}
-                        </div>
-                    </div>`;
+            // 渲染标签
+            const tagsList = document.getElementById('tagsList');
+            if (!tags || tags.length === 0) {
+                tagsList.innerHTML = '<p class="text-secondary m-0">暂未使用标签</p>';
+            } else {
+                tags.forEach(([tag, count]) => {
+                    tagsList.appendChild(createTagElement(tag, count, filterTag));
+                });
             }
 
-            html += `</div>`;
-            document.getElementById('mainContent').innerHTML = html;
+            // 如果点击了某个标签，显示该标签下的片段
+            if (filterTag && filteredSnippets) {
+                const filteredDiv = document.getElementById('filteredByTag');
+                filteredDiv.innerHTML = `
+                    <div class="card">
+                        <div class="card-header d-flex justify-content-between align-items-center">
+                            <span><i class="fas fa-filter"></i> 标签「${escapeHtml(filterTag)}」下的片段 (${filteredSnippets.length})</span>
+                            <button class="btn btn-sm btn-outline-secondary" id="clearFilterBtn">清除筛选</button>
+                        </div>
+                        <div class="card-body p-0">${renderSnippetList(filteredSnippets)}</div>
+                    </div>`;
+                document.getElementById('clearFilterBtn').addEventListener('click', () => loadTagsView());
+            }
 
-            // 标签搜索：按 Enter 或失去焦点时触发过滤
-            const tagSearchInput = document.getElementById('tagSearchInput');
-            if (tagSearchInput) {
-                const doFilter = () => {
-                    tagFilterKeyword = tagSearchInput.value.trim();
-                    loadTagsView(filterTag);
-                };
-                tagSearchInput.addEventListener('keydown', (e) => {
-                    if (e.key === 'Enter') doFilter();
+            // 搜索过滤（实时，不重新渲染全部）
+            const searchInput = document.getElementById('tagSearchInput');
+            if (searchInput) {
+                searchInput.addEventListener('input', () => {
+                    const kw = searchInput.value.trim().toLowerCase();
+                    Array.from(tagsList.children).forEach(el => {
+                        const text = el.textContent.toLowerCase();
+                        el.style.display = !kw || text.includes(kw) ? '' : 'none';
+                    });
                 });
-                tagSearchInput.addEventListener('blur', doFilter);
-                // 自动聚焦搜索框
-                tagSearchInput.focus();
             }
 
             attachSnippetClickEvents();
         } catch (e) {
-            console.error(e);
+            console.error('loadTagsView error:', e);
+            document.getElementById('mainContent').innerHTML = '<div class="alert alert-danger m-4">加载标签失败</div>';
         }
         showLoading(false);
     }

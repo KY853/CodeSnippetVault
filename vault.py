@@ -355,9 +355,13 @@ class Vault:
         # 获取目标标签
         target_tags = set()
         if based_on:
-            base = self.get_snippet(based_on)
-            if base:
-                target_tags = set(base.tags)
+            tags_result = self.db.execute_query(
+                "SELECT tags FROM snippets WHERE id = ?", (based_on,)
+            )
+            if tags_result:
+                tags_str = tags_result[0][0]
+                tags = [t.strip() for t in tags_str.split(",") if t.strip()] if tags_str else []
+                target_tags = set(tags)
 
         # 如果没有based_on或找不到，使用全局高频标签
         if not target_tags:
@@ -366,12 +370,19 @@ class Vault:
 
         # 计算每个片段的推荐分数
         scored = []
+
+        # 获取最大 usage_count 用于归一化
+        max_usage = max(s.usage_count for s in all_snippets) if all_snippets else 1
+        max_overlap = max(len(set(s.tags) & target_tags) for s in all_snippets) if target_tags else 1
+        max_overlap = max(max_overlap, 1)  # 避免除零
+
         for snippet in all_snippets:
             if based_on and snippet.id == based_on:
                 continue
 
             tag_overlap = len(set(snippet.tags) & target_tags)
-            score = tag_overlap * 10 + snippet.usage_count
+            # 归一化后加权组合：标签 70%，使用频率 30%
+            score = 0.7 * (tag_overlap / max_overlap) + 0.3 * (snippet.usage_count / max_usage)
 
             if score > 0:
                 scored.append((score, snippet))
