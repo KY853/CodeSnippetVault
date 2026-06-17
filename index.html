@@ -493,6 +493,13 @@
                         <select class="form-select" name="category" id="editCategorySelect"></select>
                     </div>
                 </form>
+                <!-- 相似推荐折叠区：查看具体代码时根据标签重合度推荐相似代码 -->
+                <div class="mt-3 border-top" style="border-color: var(--border-color) !important; padding-top: 12px;">
+                    <button class="btn btn-sm btn-outline-primary w-100" type="button" id="toggleSimilarBtn" onclick="toggleSimilarRecommend()">
+                        <i class="fas fa-link"></i> 相似代码推荐
+                    </button>
+                    <div id="similarRecommendPanel" style="display:none; margin-top: 10px;"></div>
+                </div>
             </div>
             <div class="modal-footer">
                 <button type="button" class="btn btn-danger" id="deleteSnippetBtn">删除</button>
@@ -686,13 +693,18 @@
                         </div>
                     </div>
 
-                    <!-- 智能推荐 -->
+                    <!-- 智能推荐（简洁版） -->
                     <div class="card">
-                        <div class="card-header">
-                            <i class="fas fa-star text-warning"></i> 为你推荐
+                        <div class="card-header d-flex justify-content-between align-items-center">
+                            <span><i class="fas fa-star text-warning"></i> 为你推荐</span>
+                            <a class="btn btn-sm btn-outline-primary" href="#" onclick="switchView('recommend'); return false;">
+                                <i class="fas fa-external-link-alt"></i> 查看全部
+                            </a>
                         </div>
                         <div class="card-body p-0">
-                            ${renderSnippetList(recommended, true)}
+                            ${recommended.length === 0 
+                                ? '<div class="p-4 text-center text-secondary">暂无推荐</div>' 
+                                : renderSnippetList(recommended)}
                         </div>
                     </div>
                 </div>
@@ -968,10 +980,15 @@
             const html = `
                 <div class="container-fluid">
                     <h2 class="mb-4"><i class="fas fa-star text-warning"></i> 智能推荐</h2>
-                    <p class="text-secondary mb-4">基于标签和使用频率的智能推荐，帮助你发现常用代码</p>
+                    <p class="text-secondary mb-4">基于标签聚类和混合策略的代码推荐</p>
                     <div class="card">
+                        <div class="card-header">
+                            <span><i class="fas fa-lightbulb"></i> 为你推荐 (${recommendations.length})</span>
+                        </div>
                         <div class="card-body p-0">
-                            ${renderSnippetList(recommendations, true)}
+                            ${recommendations.length === 0 
+                                ? '<div class="p-4 text-center text-secondary">暂无推荐数据</div>'
+                                : renderSnippetList(recommendations)}
                         </div>
                     </div>
                 </div>
@@ -980,6 +997,108 @@
             attachSnippetClickEvents();
         } catch (e) {}
         showLoading(false);
+    }
+
+    // 相似推荐（在编辑模态框中展开）
+    async function toggleSimilarRecommend() {
+        const panel = document.getElementById('similarRecommendPanel');
+        const btn = document.getElementById('toggleSimilarBtn');
+        if (!panel || !btn) return;
+
+        if (panel.style.display !== 'none') {
+            panel.style.display = 'none';
+            btn.innerHTML = '<i class="fas fa-link"></i> 相似代码推荐';
+            return;
+        }
+
+        // 还没加载，开始请求
+        panel.innerHTML = '<div class="text-center text-secondary py-3"><i class="fas fa-spinner fa-spin"></i> 加载中...</div>';
+        panel.style.display = 'block';
+        btn.innerHTML = '<i class="fas fa-times"></i> 收起';
+
+        const id = document.querySelector('#editSnippetForm [name="id"]')?.value;
+        if (!id) {
+            panel.innerHTML = '<div class="text-secondary text-center py-2">无法获取片段信息</div>';
+            return;
+        }
+
+        try {
+            const response = await fetch(`${API_BASE}/recommend?limit=5&based_on=${id}`);
+            const data = await response.json();
+            const items = data.data || [];
+
+            if (items.length === 0) {
+                panel.innerHTML = '<div class="text-secondary text-center py-3">暂无相似代码</div>';
+                return;
+            }
+
+            panel.innerHTML = items.map(s => {
+                const codeEscaped = escapeHtml(s.code);
+                const tagsStr = s.tags && s.tags.length ? s.tags.map(t => escapeHtml(t)).join(', ') : '';
+                return `
+                    <div class="similar-item" data-id="${s.id}" 
+                         style="padding: 8px 10px; border-bottom: 1px solid var(--border-color); cursor:pointer; transition: background 0.2s;">
+                        <div style="font-weight: 600; font-size:0.85rem; color: #58a6ff;">${escapeHtml(s.title)}</div>
+                        <div style="font-size:0.7rem; color: #8b949e; margin: 2px 0;">
+                            <span>${escapeHtml(s.language)}</span>
+                            ${s.category ? ` | <span>${escapeHtml(s.category)}</span>` : ''}
+                        </div>
+                        ${tagsStr ? `<div style="font-size:0.65rem; color: #8b949e;">标签: ${tagsStr}</div>` : ''}
+                        <div class="code-block" style="margin-top:4px;">
+                            <pre style="padding: 8px; font-size:0.7rem; max-height: 150px; overflow: auto; background: #0a0c10; border-radius: 4px; margin:0;">
+                                <code class="language-${s.language}">${codeEscaped}</code>
+                            </pre>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+
+            // 点击相似项 → 打开另一个编辑页面
+            panel.querySelectorAll('.similar-item').forEach(el => {
+                el.addEventListener('click', (e) => {
+                    const id = el.dataset.id;
+                    if (id) {
+                        // 关闭当前弹窗，打开新的
+                        bootstrap.Modal.getInstance(document.getElementById('editSnippetModal')).hide();
+                        viewSnippet(id);
+                    }
+                });
+            });
+
+            // 高亮代码
+            panel.querySelectorAll('pre code').forEach(el => {
+                hljs.highlightElement(el);
+            });
+
+        } catch (e) {
+            panel.innerHTML = '<div class="text-secondary text-center py-2">加载失败</div>';
+        }
+    }
+
+    // 简化版推荐项渲染（无评分/理由）
+    function renderRecommendItem(item) {
+        // 兼容新旧API格式
+        const snippet = item.snippet || item;
+        return `
+            <div class="snippet-item" data-id="${snippet.id}">
+                <div class="snippet-title">${escapeHtml(snippet.title)}</div>
+                <div class="snippet-meta">
+                    <span><i class="fas fa-tag"></i> ${escapeHtml(snippet.language)}</span>
+                    <span><i class="fas fa-folder"></i> ${escapeHtml(snippet.category)}</span>
+                    ${snippet.tags && snippet.tags.length ? 
+                        `<span><i class="fas fa-hashtag"></i> ${snippet.tags.map(t => escapeHtml(t)).join(', ')}</span>` : ''}
+                </div>
+            </div>
+        `;
+    }
+
+    function attachSnippetClickEvents() {
+        document.querySelectorAll('.snippet-item').forEach(el => {
+            el.addEventListener('click', (e) => {
+                const id = el.dataset.id;
+                if (id) viewSnippet(id);
+            });
+        });
     }
 
     let selectedExportIds = new Set();
@@ -1394,16 +1513,6 @@
                 </div>
             </div>
         `;
-    }
-
-    function attachSnippetClickEvents() {
-        document.querySelectorAll('.snippet-item').forEach(el => {
-            el.addEventListener('click', (e) => {
-                if (e.target.closest('.copy-btn')) return;
-                const id = el.dataset.id;
-                if (id) viewSnippet(id);
-            });
-        });
     }
 
     function switchView(view) {

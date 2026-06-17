@@ -255,14 +255,41 @@ def remove_tag(snippet_id, tag):
 
 @app.route('/api/recommend')
 def recommend():
-    """智能推荐"""
+    """
+    智能推荐（多维度混合算法）
+    
+    Query params:
+        limit: 返回数量，默认 10
+        based_on: 基于某个片段推荐
+        include_scores: 是否返回评分详情，默认 false（老接口兼容）
+    """
     limit = request.args.get('limit', 10, type=int)
     based_on = request.args.get('based_on', type=int)
+    include_scores = request.args.get('include_scores', 'false').lower() in ('true', '1')
 
-    recommendations = vault.recommend(limit=limit, based_on=based_on)
+    recommendations = vault.recommend(
+        limit=limit,
+        based_on=based_on,
+        include_scores=include_scores
+    )
+    
+    if include_scores:
+        # 带评分详情的结构
+        serialized = []
+        for item in recommendations:
+            serialized.append({
+                'snippet': item['snippet'].to_dict(),
+                'score': item['score'],
+                'details': item['details'],
+                'reasons': item['reasons'],
+            })
+    else:
+        # 老接口兼容：只返回片段列表
+        serialized = [s.to_dict() for s in recommendations]
+    
     return jsonify({
         'success': True,
-        'data': [s.to_dict() for s in recommendations]
+        'data': serialized
     })
 
 

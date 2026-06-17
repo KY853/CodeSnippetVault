@@ -4,9 +4,10 @@ Vault 核心类 - 实现所有接口
 import re
 import json
 import sqlite3
-from typing import List, Dict, Optional, Tuple
-from datetime import datetime
-from collections import Counter
+import math
+from typing import List, Dict, Optional, Tuple, Any
+from datetime import datetime, timedelta
+from collections import Counter, defaultdict
 
 from database.db_manager import DatabaseManager
 from models.snippet import Snippet
@@ -340,57 +341,267 @@ class Vault:
         return True
 
     # ============================================
-    # 智能推荐（加分项★1）
+    # 智能推荐（多维度混合算法 + 可解释性）
     # ============================================
 
-    def recommend(self, limit: int = 5, based_on: int = None) -> List[Snippet]:
+    def _compute_tfidf_tag_weights(self) -> Dict[str, float]:
         """
-        基于标签和使用频率的智能推荐
+        计算标签的 TF-IDF 权重
+        返回 Dict[tag, idf_weight]
+        """
+        all_rows = self.db.execute_query("SELECT tags FROM snippets WHERE tags != ''")
+        total_docs = len(all_rows) or 1
+        
+        # 每个标签出现在多少文档中
+        doc_freq: Dict[str, int] = defaultdict(int)
+        for row in all_rows:
+            tags = set(t.strip() for t in row[0].split(',') if t.strip())
+            for tag in tags:
+                doc_freq[tag] += 1
+        
+        # IDF = log(N / df) 平滑处理避免除零
+        idf: Dict[str, float] = {}
+        for tag, df in doc_freq.items():
+            idf[tag] = math.log((total_docs + 1) / (df + 1)) + 1
+        return idf
+
+    def _compute_tag_similarity(
+        self, 
+        snippet_tags: List[str],
+        target_tags: set,
+        idf_weights: Dict[str, float],
+    ) -> float:
+        """
+        计算带 IDF 权重的标签相似度（Jaccard 加权变体）
+        
+        weighted_jaccard = sum(idf(common)) / sum(idf(union))
+        """
+        if not target_tags or not snippet_tags:
+            return 0.0
+        
+        tag_set = set(snippet_tags)
+        common = tag_set & target_tags
+        union = tag_set | target_tags
+        
+        if not union:
+            return 0.0
+        
+        num = sum(idf_weights.get(t, 1.0) for t in common)
+        den = sum(idf_weights.get(t, 1.0) for t in union)
+        return num / den if den > 0 else 0.0
+
+    def _compute_text_similarity(self, text1: str, text2: str) -> float:
+        """
+        简单文本相似度：基于标题关键词重叠（无 embedding）
+        提取标题中的中文词 + 英文单词
+        """
+        def tokenize(s: str) -> set:
+            s = s.lower()
+            # 提取中文和英文 token
+            chinese = set(c for c in s if '\u4e00' <= c <= '\u9fff')
+            # 英文单词按空格/标点切分
+            english = set(re.findall(r'[a-z0-9_]+', s))
+            return chinese | english
+        
+        tokens1 = tokenize(text1)
+        tokens2 = tokenize(text2)
+        if not tokens1 or not tokens2:
+            return 0.0
+        
+        common = tokens1 & tokens2
+        union = tokens1 | tokens2
+        return len(common) / len(union) if union else 0.0
+
+    def _compute_recency(self, updated_at: Optional[str]) -> float:
+        """
+        时效性分数：越近更新时间越高
+        按天衰减，30天后趋近于0
+        """
+        if not updated_at:
+            return 0.0
+        try:
+            dt = datetime.strptime(updated_at, '%Y-%m-%d %H:%M:%S')
+            now = datetime.now()
+            delta_days = (now - dt).days
+            # 30天半衰期
+            return math.exp(-delta_days / 30)
+        except ValueError:
+            return 0.0
+
+    def recommend(
+        self, 
+        limit: int = 5, 
+        based_on: int = None,
+        include_scores: bool = False,
+    ) -> List[Any]:
+        """
+        多维度混合智能推荐算法。
+        
+        特征维度：
+        1. 标签语义匹配（TF-IDF 加权 Jaccard）       — 40%
+        2. 标题文本相似度（基于关键词重叠）          — 10%
+        3. 分类接近度（同一分类 + 同语言 + 额外分）— 15%
+        4. 使用热度（对数归一化使用频率）            — 20%
+        5. 时效性（30天指数衰减）                    — 10%
+        6. 多样性惩罚（同类别不超过 50%）             — 5%
+        
+        Args:
+            limit: 返回数量
+            based_on: 基于某个片段推荐，None 则基于全局热门标签
+            include_scores: 返回详细评分信息
+        
+        Returns:
+            List[Snippet] or List[Dict]（当 include_scores=True）
         """
         all_snippets = self.get_all_snippets(limit=1000)
-
         if not all_snippets:
             return []
 
-        # 获取目标标签
-        target_tags = set()
-        if based_on:
-            tags_result = self.db.execute_query(
-                "SELECT tags FROM snippets WHERE id = ?", (based_on,)
-            )
-            if tags_result:
-                tags_str = tags_result[0][0]
-                tags = [t.strip() for t in tags_str.split(",") if t.strip()] if tags_str else []
-                target_tags = set(tags)
+        # ── 1. 计算全局 IDF 权重 ──
+        idf_weights = self._compute_tfidf_tag_weights()
 
-        # 如果没有based_on或找不到，使用全局高频标签
+        # ── 2. 确定目标特征 ──
+        target_tags: set = set()
+        target_title: str = ""
+        target_category: str = ""
+        target_language: str = ""
+
+        if based_on:
+            rows = self.db.execute_query(
+                "SELECT tags, title, category, language FROM snippets WHERE id = ?",
+                (based_on,)
+            )
+            if rows:
+                tags_str = rows[0][0]
+                target_tags = set(
+                    t.strip() for t in tags_str.split(",") if t.strip()
+                ) if tags_str else set()
+                target_title = rows[0][1]
+                target_category = rows[0][2]
+                target_language = rows[0][3]
+
+        # 如果没有 based_on 或 based_on 无标签，用全局热门标签
         if not target_tags:
-            top_tags = self.get_all_tags()[:3]
+            top_tags = self.get_all_tags()[:5]
             target_tags = {tag for tag, _ in top_tags}
 
-        # 计算每个片段的推荐分数
-        scored = []
+        # ── 3. 计算全局特征统计数据（用于归一化） ──
+        max_usage = max((s.usage_count for s in all_snippets), default=1)
+        max_usage = max(max_usage, 1)
 
-        # 获取最大 usage_count 用于归一化
-        max_usage = max(s.usage_count for s in all_snippets) if all_snippets else 1
-        max_overlap = max(len(set(s.tags) & target_tags) for s in all_snippets) if target_tags else 1
-        max_overlap = max(max_overlap, 1)  # 避免除零
+        # ── 4. 对每个片段评分 ──
+        scored: List[Tuple[float, Snippet, Dict[str, float]]] = []
+        category_count: Dict[str, int] = defaultdict(int)
 
         for snippet in all_snippets:
             if based_on and snippet.id == based_on:
                 continue
 
-            tag_overlap = len(set(snippet.tags) & target_tags)
-            # 归一化后加权组合：标签 70%，使用频率 30%
-            score = 0.7 * (tag_overlap / max_overlap) + 0.3 * (snippet.usage_count / max_usage)
+            # 维度①：标签语义匹配（40%）
+            tag_score = self._compute_tag_similarity(
+                snippet.tags, target_tags, idf_weights
+            )
+
+            # 维度②：标题文本相似度（10%）
+            title_score = self._compute_text_similarity(
+                snippet.title, target_title or snippet.title
+            ) if target_title else 0.0
+
+            # 维度③：分类+语言接近度（15%）
+            category_boost = 0.0
+            if target_category and snippet.category == target_category:
+                category_boost = 0.08
+            if target_language and snippet.language == target_language:
+                category_boost += 0.07
+            cat_lang_score = category_boost
+
+            # 维度④：使用热度（20%）— 对数归一化更平滑
+            usage_norm = math.log(1 + snippet.usage_count) / math.log(1 + max_usage)
+            usage_norm = max(0.0, min(usage_norm, 1.0))
+
+            # 维度⑤：时效性（10%）
+            recency_score = self._compute_recency(snippet.updated_at)
+
+            # ── 综合得分：可配置权重 ──
+            score = (
+                0.40 * tag_score +
+                0.10 * title_score +
+                0.15 * cat_lang_score +
+                0.20 * usage_norm +
+                0.10 * recency_score
+            )
+
+            detail = {
+                "tag_match": round(tag_score, 4),
+                "title_similarity": round(title_score, 4),
+                "cat_lang_match": round(cat_lang_score, 4),
+                "usage_heat": round(usage_norm, 4),
+                "recency": round(recency_score, 4),
+            }
 
             if score > 0:
-                scored.append((score, snippet))
+                scored.append((score, snippet, detail))
+                category_count[snippet.category] += 1
 
-        # 按分数排序
+        # ── 5. 多样性重排序 ──
         scored.sort(key=lambda x: x[0], reverse=True)
 
-        return [snippet for _, snippet in scored[:limit]]
+        final: List[Any] = []
+        final_cats: Dict[str, int] = defaultdict(int)
+        limit_left = limit
+
+        for score, snippet, detail in scored:
+            if len(final) >= limit:
+                break
+
+            # 多样性惩罚：同类不超过 50%
+            cat = snippet.category
+            max_of_cat = max(limit // 2, 1)
+            if final_cats[cat] >= max_of_cat:
+                # 如果同类超额，检查后面是否还有不同类的可以替代
+                continue
+
+            final_cats[cat] += 1
+            if include_scores:
+                final.append({
+                    "snippet": snippet,
+                    "score": round(score, 4),
+                    "details": detail,
+                    "reasons": self._generate_reasons(detail, snippet, target_tags),
+                })
+            else:
+                final.append(snippet)
+
+        return final
+
+    def _generate_reasons(
+        self,
+        detail: Dict[str, float],
+        snippet: Snippet,
+        target_tags: set,
+    ) -> List[str]:
+        """根据评分细节生成可读的推荐理由"""
+        reasons = []
+        
+        # 标签匹配
+        common_tags = set(snippet.tags) & target_tags
+        if common_tags:
+            tags_str = "、".join(sorted(common_tags))
+            reasons.append(f"\u6807\u7b7e\u5339\u914d\uff1a\u201c{tags_str}\u201d")
+        
+        # 分类匹配
+        if detail.get("cat_lang_match", 0) > 0:
+            reasons.append(f"同分类/语言")
+        
+        # 热门度
+        if snippet.usage_count >= 3:
+            reasons.append(f"热度高（使用 {snippet.usage_count} 次）")
+        
+        # 时效性
+        if detail.get("recency", 0) > 0.5:
+            reasons.append("最近更新")
+        
+        return reasons[:3]  # 最多3条理由
 
     # ============================================
     # 文件导入导出
