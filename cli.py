@@ -92,31 +92,61 @@ def show_snippet_detail(vault: Vault):
 
 
 def list_snippets(vault: Vault):
-    """列出所有片段"""
+    """列出所有片段（支持排序）"""
     clear_screen()
     print_header("我的代码片段")
 
-    snippets = vault.get_all_snippets(limit=100)
+    print("  排序方式:")
+    print("    1. 按更新时间（最新在前）")
+    print("    2. 按创建时间（最新在前）")
+    print("    3. 按使用次数（最多在前）")
+    print("    4. 按标题字母序")
+    sort_choice = input("  请选择 (默认 1): ").strip() or "1"
+    sort_map = {"1": "updated_at", "2": "created_at", "3": "usage_count", "4": "title"}
+    sort_by = sort_map.get(sort_choice, "updated_at")
+
+    snippets = vault.get_all_snippets(sort_by=sort_by, limit=100)
     if not snippets:
-        print("  📭 还没有代码片段，快去添加吧！")
+        print("\n  📭 还没有代码片段，快去添加吧！")
         input("\n  按 Enter 返回...")
         return
 
-    for i, s in enumerate(snippets, 1):
-        print(f"  [{s.id:3d}] {s.title}")
-        print(f"       {s.language:10s} | {s.category:10s} | 标签: {', '.join(s.tags[:3]) if s.tags else '无'}")
-        print()
-
+    page_size = 15
     total = len(snippets)
-    print(f"  📊 共 {total} 条片段")
-    choice = input("\n  输入ID查看详情，或直接按Enter返回: ").strip()
-    if choice.isdigit():
-        snippet = vault.get_snippet(int(choice))
-        if snippet:
-            clear_screen()
-            print_header("片段详情")
-            print_snippet(snippet)
-            input("\n  按 Enter 返回...")
+    page = 0
+    max_page = max((total - 1) // page_size, 0)
+
+    while True:
+        clear_screen()
+        print_header("我的代码片段")
+        sort_labels = {"updated_at": "更新时间", "created_at": "创建时间", "usage_count": "使用次数", "title": "标题"}
+        print(f"  排序: {sort_labels.get(sort_by, sort_by)}  |  第 {page+1}/{max_page+1} 页  |  共 {total} 条\n")
+
+        start = page * page_size
+        end = min(start + page_size, total)
+        for i in range(start, end):
+            s = snippets[i]
+            tag_str = ', '.join(s.tags[:3]) if s.tags else '无'
+            print(f"  {i+1:3d}. [{s.id:3d}] {s.title}")
+            print(f"       {s.language:10s} | {s.category:10s} | 使用 {s.usage_count} 次 | 标签: {tag_str}")
+            print()
+
+        print("  [n] 下一页  [p] 上一页  [q] 返回")
+        choice = input("\n  输入ID查看详情，或选 n/p/q: ").strip().lower()
+        if choice == 'n' and page < max_page:
+            page += 1
+        elif choice == 'p' and page > 0:
+            page -= 1
+        elif choice == 'q':
+            break
+        elif choice.isdigit():
+            snippet = vault.get_snippet(int(choice))
+            if snippet:
+                clear_screen()
+                print_header("片段详情")
+                print_snippet(snippet)
+                input("\n  按 Enter 返回...")
+                break
 
 
 def add_snippet(vault: Vault):
@@ -287,12 +317,12 @@ def search_snippets(vault: Vault):
 
     for i, r in enumerate(results, 1):
         s = r["snippet"]
-        match_summary = ", ".join(
-            f"{m['field']}: ...{m['context']}..."
-            for m in r['matches'][:3]
-        )
-        print(f"  [{s.id:3d}] {s.title}")
-        print(f"       {s.language:10s} | 匹配: {match_summary}")
+        matched_chars = r.get("matched_chars", [])
+        matched_str = "".join(matched_chars) if matched_chars else keyword
+        match_types = [m["match_type"] for m in r["matches"][:2]]
+        detail = "+".join(match_types) if match_types else "匹配"
+        print(f"  {i:3d}. [{s.id:3d}] {s.title}")
+        print(f"       {s.language:10s} | 匹配: 「{matched_str}」({detail})")
         print()
 
     choice = input("  输入ID查看详情，或直接按Enter返回: ").strip()
@@ -397,14 +427,21 @@ def export_menu(vault: Vault):
 
         choice = input("\n  请选择: ").strip()
 
+        ids_hint = ""
+        ids = input("  只导出指定片段ID（逗号分隔，直接Enter导出全部）: ").strip()
+        snippet_ids = None
+        if ids:
+            snippet_ids = [int(x.strip()) for x in ids.split(",") if x.strip().isdigit()]
+            ids_hint = f"（{len(snippet_ids)} 条）"
+
         if choice == "1":
             filename = input("  导出文件名 (默认 snippets_export.json): ").strip()
             if not filename:
                 filename = f"snippets_export_{datetime.now():%Y%m%d_%H%M%S}.json"
             if not filename.endswith(".json"):
                 filename += ".json"
-            if vault.export_to_json(filename):
-                print(f"  ✅ 已导出到 {filename}")
+            if vault.export_to_json(filename, snippet_ids=snippet_ids):
+                print(f"  ✅ 已导出到 {filename} {ids_hint}")
             else:
                 print("  ❌ 导出失败")
             input("  按 Enter 继续...")
@@ -415,8 +452,13 @@ def export_menu(vault: Vault):
                 filename = f"snippets_export_{datetime.now():%Y%m%d_%H%M%S}.md"
             if not filename.endswith(".md"):
                 filename += ".md"
-            if export_to_markdown(vault, filename):
-                print(f"  ✅ 已导出到 {filename}")
+            if snippet_ids:
+                snippets = [vault.get_snippet(sid) for sid in snippet_ids if vault.get_snippet(sid)]
+                ok = vault.export_to_markdown(filename, snippets=snippets) if snippets else False
+            else:
+                ok = vault.export_to_markdown(filename)
+            if ok:
+                print(f"  ✅ 已导出到 {filename} {ids_hint}")
             else:
                 print("  ❌ 导出失败")
             input("  按 Enter 继续...")
@@ -427,8 +469,13 @@ def export_menu(vault: Vault):
                 filename = f"snippets_export_{datetime.now():%Y%m%d_%H%M%S}.html"
             if not filename.endswith(".html"):
                 filename += ".html"
-            if export_to_html(vault, filename):
-                print(f"  ✅ 已导出到 {filename}")
+            if snippet_ids:
+                snippets = [vault.get_snippet(sid) for sid in snippet_ids if vault.get_snippet(sid)]
+                ok = vault.export_to_html(filename, snippets=snippets) if snippets else False
+            else:
+                ok = vault.export_to_html(filename)
+            if ok:
+                print(f"  ✅ 已导出到 {filename} {ids_hint}")
             else:
                 print("  ❌ 导出失败")
             input("  按 Enter 继续...")
@@ -473,8 +520,9 @@ def show_statistics(vault: Vault):
     print(f"  📁 分类总数:       {stats['total_categories']}")
     print(f"  🏷️  标签总数:      {stats['total_tags']}")
     print(f"  🔤 最常用语言:     {stats['most_used_language']}")
-    if stats['most_popular_snippet']:
-        p = stats['most_popular_snippet']
+    popular = stats.get('most_popular_snippets', [])
+    if popular:
+        p = popular[0]
         print(f"  🔥 最热门片段:     [{p['id']}] {p['title']} (使用 {p['usage_count']} 次)")
 
     input("\n  按 Enter 返回...")
