@@ -639,11 +639,30 @@ class Vault:
             # 清空现有数据
             self.db.execute_update("DELETE FROM snippets")
 
+        # 收集所有用到的分类，缺失的自动创建；空分类→默认
+        used_categories = set()
+        for snippet_data in data.get("snippets", []):
+            cat = snippet_data.get("category", "默认")
+            if not cat or not cat.strip():
+                cat = "默认"
+            used_categories.add(cat)
+        for cat in used_categories:
+            if not self._category_exists(cat):
+                self.db.execute_update(
+                    "INSERT INTO categories (name, description) VALUES (?, ?)",
+                    (cat, "从导入文件自动创建")
+                )
+
         count = 0
         for snippet_data in data.get("snippets", []):
             # 检查是否重复（相同title和code）
             if merge and self._is_duplicate(snippet_data["title"], snippet_data["code"]):
                 continue
+
+            # 空分类→默认
+            cat = snippet_data.get("category", "默认")
+            if not cat or not cat.strip():
+                snippet_data["category"] = "默认"
 
             snippet = Snippet.from_dict(snippet_data)
             self.add_snippet(snippet)
